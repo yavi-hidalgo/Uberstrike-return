@@ -13,6 +13,7 @@ import { Avatar, loadAvatarModel } from "./avatars";
 import { buildProps, hasModel, loadPropModels } from "./props";
 import { weaponAnchors, weaponObject } from "./weaponmodels";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 export type Quality = "low" | "medium" | "high";
 
@@ -36,6 +37,9 @@ export class World {
   private avatars = new Map<number, Avatar>();
   private tracers: { obj: THREE.Line; life: number; mat: THREE.LineBasicMaterial }[] = [];
   private time = 0;
+  /** El arma en primera persona se dibuja en su propia escena, con luz de estudio. */
+  private weaponScene = new THREE.Scene();
+  private weaponCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 20);
 
   constructor(canvas: HTMLCanvasElement, readonly quality: Quality) {
     const usePost = quality !== "low";
@@ -85,8 +89,8 @@ export class World {
 
     // Arma en primera persona
     this.camera.rotation.order = "YXZ";
-    this.camera.add(this.weapon.root);
     this.scene.add(this.camera);
+    this.setupWeaponScene();
     this.effects = new ShotEffects(this.scene, quality === "low" ? 24 : 64);
 
     if (usePost) {
@@ -165,12 +169,34 @@ export class World {
     }
   }
 
+  /**
+   * Escena aparte para el arma: luz de estudio suave con un toque frío de luna,
+   * para que los materiales se vean como en el visor 3D. Además el arma nunca
+   * atraviesa las paredes, porque se dibuja encima del mundo.
+   */
+  private setupWeaponScene() {
+    this.weaponScene.add(this.weapon.root);
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.weaponScene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.weaponScene.environmentIntensity = 0.55;
+    pmrem.dispose();
+    const key = new THREE.DirectionalLight(0xdfe8ff, 2.2);
+    key.position.set(-1, 2, 1.5);
+    const fill = new THREE.DirectionalLight(0xffd2a0, 0.5);
+    fill.position.set(2, 0.5, 1);
+    const rim = new THREE.DirectionalLight(0x9fc0ff, 1.4);
+    rim.position.set(1, 1, -2);
+    this.weaponScene.add(key, fill, rim, new THREE.AmbientLight(0x404a60, 0.6));
+  }
+
   private resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.composer?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.weaponCamera.aspect = w / h;
+    this.weaponCamera.updateProjectionMatrix();
   }
 
   setView(x: number, y: number, z: number, yaw: number, pitch: number) {
@@ -184,14 +210,15 @@ export class World {
   localShot(hits: { point: THREE.Vector3; normal: THREE.Vector3; kind: string | null }[], feetY: number) {
     this.weapon.fire(hits.length);
     this.camera.updateMatrixWorld(true);
-    const from = this.weapon.muzzleWorld();
+    // El arma vive en el espacio de la cámara: lo pasamos al mundo para la trazadora
+    const from = this.camera.localToWorld(this.weapon.muzzleWorld());
     for (const h of hits) {
       this.tracer(from, h.point, 0xffe2a8);
       this.effects.impact(h.point, h.normal, h.kind);
     }
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
-    this.effects.ejectShell(this.weapon.ejectorWorld(), right, up, feetY);
+    this.effects.ejectShell(this.camera.localToWorld(this.weapon.ejectorWorld()), right, up, feetY);
   }
 
   remoteShot(from: THREE.Vector3, to: THREE.Vector3, normal: THREE.Vector3 | null, kind: string | null) {
@@ -276,5 +303,17 @@ export class World {
 
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
+
+    // Segunda pasada: el arma encima del mundo, con su propia luz
+    if (this.weapon.root.visible) {
+      const r = this.renderer;
+      const prevTone = r.toneMapping;
+      r.autoClear = false;
+      r.toneMapping = THREE.ACESFilmicToneMapping;
+      r.clearDepth();
+      r.render(this.weaponScene, this.weaponCamera);
+      r.toneMapping = prevTone;
+      r.autoClear = true;
+    }
   }
 }

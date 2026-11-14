@@ -38,9 +38,8 @@ export const CATEGORY_NAMES: Record<Category, string> = {
   rifle: "Rifle de asalto", smg: "Subfusil", shotgun: "Escopeta", sniper: "Francotirador", pistol: "Pistola",
 };
 
-/** Armas propias del juego (no vienen de Sketchfab). */
+/** Armas que no vienen de Sketchfab. */
 const BUILT_IN: WeaponModel[] = [
-  { id: "kestrel", name: "Kestrel AR-7", author: "Arena Rush", category: "rifle", futuristic: false, source: "" },
   { id: "service_pistol", name: "Pistola de servicio", author: "Poly Haven", category: "pistol", futuristic: false, source: "https://polyhaven.com/a/service_pistol" },
 ];
 
@@ -105,7 +104,7 @@ function variation(id: string, salt: number): number {
 }
 
 export function weaponStats(id: string): WeaponStats {
-  const m = BY_ID.get(id) ?? BUILT_IN[0];
+  const m = BY_ID.get(id) ?? BY_ID.get(DEFAULT_PRIMARY)!;
   const base = CATEGORY_STATS[m.category];
   const v = variation(m.id, 7);
   // Más daño = algo más lento; las futuristas pegan un poco más fuerte pero tienen menos balas
