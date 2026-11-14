@@ -39,7 +39,7 @@ async function join(name: string, roomId?: string): Promise<Bot> {
   room.onMessage("welcome", (m) => (bot.id = m.id));
   room.onMessage("snap", (m) => (bot.last = m));
   room.onMessage("ping", (m) => room.send("pong", m));
-  for (const t of ["hit", "kill", "shot", "damaged", "roster"]) {
+  for (const t of ["hit", "kill", "shot", "damaged", "roster", "picked", "pickups"]) {
     room.onMessage(t, (m) => bot.events.push({ type: t, msg: m }));
   }
   await sleep(150);
@@ -143,19 +143,33 @@ test("anti wallhack: no recibes la posición de enemigos detrás de una pared", 
   const a = await join("Ojo");
   const b = await join("Escondido", a.room.roomId);
   const pa = serverPlayer(a), pb = serverPlayer(b);
-  // El muro de cobertura x=-14 va de z=-15 a z=-5 y mide 3 m de alto.
-  Object.assign(pa.move, { x: -20, y: 0, z: -10, vy: 0, onGround: true });
-  Object.assign(pb.move, { x: -8, y: 0, z: -10, vy: 0, onGround: true });
+  // La cabaña de (-18, -20) mide 5 x 4 m y 3 m de alto: tapa por completo.
+  Object.assign(pa.move, { x: -25, y: 0, z: -20, vy: 0, onGround: true });
+  Object.assign(pb.move, { x: -11, y: 0, z: -20, vy: 0, onGround: true });
   await sleep(600);
-  assert.equal(a.last!.others.length, 0, "detrás del muro no debe llegar nada");
+  assert.equal(a.last!.others.length, 0, "detrás de la cabaña no debe llegar nada");
 
-  // Sale del muro: ahora sí debe aparecer.
-  Object.assign(pb.move, { x: -8, y: 0, z: 2 });
+  // Sale de detrás de la cabaña: ahora sí debe aparecer.
+  Object.assign(pb.move, { x: -11, y: 0, z: -12 });
   await sleep(200);
   assert.equal(a.last!.others.length, 1);
   assert.equal(a.last!.others[0][0], b.id);
   await a.room.leave();
   await b.room.leave();
+});
+
+test("botiquín: lo recoge el servidor y desaparece hasta reaparecer", async () => {
+  const a = await join("Herido");
+  const p = serverPlayer(a);
+  const room = serverRoom(a);
+  p.hp = 40;
+  // Botiquín 4 en (0, 0, -27), +25 de vida
+  Object.assign(p.move, { x: 0, y: 0, z: -27, vy: 0, onGround: true });
+  await sleep(200);
+  assert.equal(p.hp, 65);
+  assert.ok(a.events.some((e) => e.type === "picked"));
+  assert.ok(room.pickupRespawn.get(4) > 0, "debe quedar en espera de reaparición");
+  await a.room.leave();
 });
 
 test("cadencia de disparo limitada aunque se mande FIRE en cada input", async () => {

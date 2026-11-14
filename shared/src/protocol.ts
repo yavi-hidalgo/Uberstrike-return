@@ -21,8 +21,8 @@ export interface SelfSnapshot {
   ping: number; // ms, medido por el servidor
 }
 
-/** Otro jugador: [id, x, y, z, yaw, pitch]. Solo se envían los que puedes ver. */
-export type OtherSnapshot = [number, number, number, number, number, number];
+/** Otro jugador: [id, x, y, z, yaw, pitch, hp]. Solo se envían los que puedes ver. */
+export type OtherSnapshot = [number, number, number, number, number, number, number];
 
 export interface SnapshotMsg {
   tick: number;
@@ -73,4 +73,15 @@ export interface HitMsg {
 export interface DamagedMsg {
   /** dirección horizontal desde la que vino el disparo (radianes) */
   fromAngle: number;
+}
+
+/** Estado de los botiquines: ids de los que están disponibles ahora. */
+export interface PickupsMsg {
+  active: number[];
+}
+
+/** Al jugador que recoge un objeto. */
+export interface PickedMsg {
+  id: number;
+  amount: number;
 }

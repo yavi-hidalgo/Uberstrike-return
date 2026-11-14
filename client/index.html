@@ -10,26 +10,36 @@
     <canvas id="game"></canvas>
 
     <div id="hud" class="hidden">
-      <div id="crosshair"><span></span><span></span><span></span><span></span></div>
-      <div id="hitmarker"></div>
-      <div id="damage-flash"></div>
+      <div id="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
+      <div id="hitmarker" aria-hidden="true"></div>
+      <div id="damage-flash" aria-hidden="true"></div>
       <div id="killfeed"></div>
+      <div id="toast" role="status"></div>
+
+      <div id="scorebar">
+        <div class="score-box me"><span class="score-label">TÚ</span><span id="score-me">0</span></div>
+        <div class="score-mid">
+          <span id="score-left">Faltan 20 bajas</span>
+          <span id="ping">0 ms</span>
+        </div>
+        <div class="score-box lead"><span class="score-label" id="score-lead-name">—</span><span id="score-lead">0</span></div>
+      </div>
+
       <div id="bottom-left">
-        <div class="label">VIDA</div>
-        <div id="hp-value">100</div>
+        <div class="vital">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z" /></svg>
+          <span id="hp-value">100</span>
+        </div>
         <div id="hp-bar"><div id="hp-fill"></div></div>
       </div>
       <div id="bottom-right">
-        <div class="label" id="weapon-name">RIFLE</div>
-        <div id="ammo">30</div>
-        <div id="reload" class="hidden">RECARGANDO…</div>
+        <div class="ammo-line"><span id="ammo">30</span><span id="ammo-max">/ 30</span></div>
+        <div class="weapon-name">KESTREL AR-7</div>
+        <div id="reload" class="hidden">RECARGANDO</div>
       </div>
-      <div id="top-left">
-        <div id="score-line"></div>
-        <div id="ping"></div>
-      </div>
+
       <div id="death" class="hidden">
-        <div id="death-title">ELIMINADO</div>
+        <div id="death-title">Eliminado</div>
         <div id="death-sub"></div>
       </div>
       <div id="scoreboard" class="hidden">
@@ -45,17 +55,22 @@
 
     <div id="menu">
       <div class="card">
+        <p class="map-name">Observatorio Andino · noche</p>
         <h1>ARENA<span>RUSH</span></h1>
-        <p class="tagline">Shooter arena multijugador</p>
         <form id="join-form">
           <label for="name">Tu nombre</label>
           <input id="name" maxlength="16" autocomplete="nickname" placeholder="Jugador" required />
+          <label for="quality">Calidad gráfica</label>
+          <select id="quality">
+            <option value="low">Baja: PCs modestos y portátiles</option>
+            <option value="medium">Media: sombras y brillo</option>
+            <option value="high">Alta: sombras suaves y antialiasing</option>
+          </select>
           <button type="submit" id="join-btn">Jugar</button>
           <div id="menu-error" role="alert"></div>
         </form>
         <div class="controls">
-          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse</div>
-          <div><kbd>Espacio</kbd> saltar</div>
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse · <kbd>Espacio</kbd> saltar</div>
           <div><kbd>Clic</kbd> disparar · <kbd>R</kbd> recargar</div>
           <div><kbd>Tab</kbd> marcador · <kbd>Esc</kbd> soltar ratón</div>
         </div>

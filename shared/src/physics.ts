@@ -145,6 +145,38 @@ export function rayMap(
   return best;
 }
 
+/** Como rayMap, pero también devuelve la normal de la superficie golpeada (para efectos). */
+export function rayMapHit(
+  ox: number, oy: number, oz: number,
+  dx: number, dy: number, dz: number,
+  maxDist: number, boxes: Box[] = MAP_BOXES,
+): { t: number; normal: [number, number, number]; kind: string | null } {
+  let best = maxDist;
+  let hitBox: Box | null = null;
+  for (const b of boxes) {
+    if (b.kind === "invisible") continue;
+    const t = rayBox(ox, oy, oz, dx, dy, dz, b.min, b.max);
+    if (t < best) { best = t; hitBox = b; }
+  }
+  let normal: [number, number, number] = [0, 0, 0];
+  let kind: string | null = hitBox ? hitBox.kind : null;
+  if (dy < 0) {
+    const t = -oy / dy;
+    if (t >= 0 && t < best) { best = t; hitBox = null; normal = [0, 1, 0]; kind = "ground"; }
+  }
+  if (hitBox) {
+    const p = [ox + dx * best, oy + dy * best, oz + dz * best];
+    let bestD = Infinity;
+    for (let i = 0; i < 3; i++) {
+      const dMin = Math.abs(p[i] - hitBox.min[i]);
+      const dMax = Math.abs(p[i] - hitBox.max[i]);
+      if (dMin < bestD) { bestD = dMin; normal = [0, 0, 0]; normal[i] = -1; }
+      if (dMax < bestD) { bestD = dMax; normal = [0, 0, 0]; normal[i] = 1; }
+    }
+  }
+  return { t: best, normal, kind };
+}
+
 /** ¿Hay línea de visión directa entre dos puntos? */
 export function lineOfSight(
   ax: number, ay: number, az: number,

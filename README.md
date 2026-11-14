@@ -4,6 +4,30 @@ Shooter arena multijugador que se juega en el navegador, con **servidor autorita
 
 > "Arena Rush" es un nombre provisional. El juego está *inspirado* en los shooters arcade tipo arena, pero todo (nombre, mapa, arte) es propio.
 
+## El mapa: Observatorio Andino
+
+Estación científica en una cumbre nevada, de noche, rodeada de una cordillera y un mar de nubes:
+
+- **Centro:** observatorio de hormigón octogonal con cúpula de metal blanco. Se sube al techo por dos escaleras.
+- **Laterales:** terrazas de roca con parapeto.
+- **Esquinas:** cabañas de madera iluminadas, una antena con luz roja y una antena parabólica.
+- **Coberturas:** muros, rocas, contenedores y cajas de suministros.
+- **Botiquines:** 5 botiquines que da y repone el servidor.
+
+Lo que choca (para el servidor) son cajas simples; lo que se ve son modelos detallados encima. Así el juego se ve bien sin perder velocidad ni seguridad.
+
+### Calidad gráfica
+
+Se elige en el menú:
+
+| Calidad | Qué incluye | Para qué equipos |
+|---|---|---|
+| **Baja** | Sin sombras ni postprocesado, menos nieve y menos luces | PCs modestos y portátiles |
+| **Media** | Sombras de la luna, brillo (bloom), viñeta, luces de las farolas | La mayoría de PCs |
+| **Alta** | Sombras suaves de alta resolución, antialiasing SMAA y luces en los botiquines | Tarjetas tipo GTX 1660 o superiores |
+
+Todas las texturas (hormigón, roca, madera, metal, nieve, losas) se generan por código al cargar el juego, con color, relieve y rugosidad.
+
 ## Requisitos
 
 - [Node.js](https://nodejs.org/) 20 o superior (LTS)
@@ -42,6 +66,8 @@ Para jugar con alguien de tu misma red Wi-Fi, comparte la dirección "Network" q
 | `Tab` | ver el marcador |
 | `Esc` | soltar el ratón |
 
+Los botiquines rojos (+25 a +50 de vida) aparecen sobre el techo del observatorio, en las terrazas y en los extremos norte y sur del mapa.
+
 **Reglas:** todos contra todos, el primero en llegar a 20 bajas gana la ronda. Un disparo a la cabeza hace el doble de daño.
 
 ## Estructura del proyecto
@@ -58,7 +84,12 @@ server/src/
 server/test/     Pruebas automáticas con clientes reales
 client/src/
   main.ts        Lógica del cliente: conexión, predicción, HUD
-  world.ts       Escena 3D: mapa, jugadores, arma, efectos
+  world.ts       Motor de la escena: luces, calidad, postprocesado
+  environment.ts Cielo nocturno, luna, cordillera, nubes y nieve
+  mapbuilder.ts  Modelos del mapa: observatorio, cabañas, antena...
+  textures.ts    Texturas PBR generadas por código
+  weapon.ts      Arma en primera persona y efectos de disparo
+  avatars.ts     Jugadores rivales animados
   audio.ts       Sonidos generados por código
 ```
 
@@ -112,6 +143,8 @@ Las pruebas levantan un servidor real y conectan jugadores falsos para comprobar
   - estadísticas guardadas;
   - detección de aimbot;
   - controles táctiles para móvil.
+
+Los créditos de los recursos libres están en [CREDITS.md](CREDITS.md).
 
 ## Notas técnicas
 

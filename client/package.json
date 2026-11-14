@@ -8,7 +8,9 @@
     "preview": "vite preview --host"
   },
   "dependencies": {
+    "@fontsource/saira-condensed": "5.2.8",
     "colyseus.js": "0.16.22",
+    "postprocessing": "6.39.5",
     "three": "0.181.0"
   },
   "devDependencies": {

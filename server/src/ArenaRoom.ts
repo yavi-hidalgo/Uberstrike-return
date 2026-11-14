@@ -5,13 +5,13 @@ import {
   MAX_QUEUED_INPUTS, NAME_MAX_LEN, PLAYER_HEIGHT, RESPAWN_MS, TICK_RATE,
   VISIBILITY_GRACE_MS, WEAPON,
 } from "../../shared/src/constants";
-import { SPAWN_POINTS } from "../../shared/src/map";
+import { PICKUPS, SPAWN_POINTS } from "../../shared/src/map";
 import {
   aimDirection, hitboxes, lineOfSight, rayBox, rayMap, stepMove,
   type InputCmd, type MoveState,
 } from "../../shared/src/physics";
 import type {
-  DamagedMsg, HitMsg, KillMsg, OtherSnapshot, RosterMsg, ShotMsg,
+  DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, RosterMsg, ShotMsg,
   SnapshotMsg, WelcomeMsg,
 } from "../../shared/src/protocol";
 
@@ -90,6 +90,8 @@ export class ArenaRoom extends Room {
   private tick = 0;
   private intermissionUntil = 0;
   private winner: string | null = null;
+  /** id del botiquín -> momento (ms) en que vuelve a aparecer; 0 = disponible */
+  private pickupRespawn = new Map<number, number>(PICKUPS.map((p) => [p.id, 0]));
 
   onCreate() {
     this.setSimulationInterval(() => this.update(), 1000 / TICK_RATE);
@@ -132,6 +134,7 @@ export class ArenaRoom extends Room {
     this.players.set(client.sessionId, p);
     this.respawn(p);
     client.send("welcome", { id, tickRate: TICK_RATE } satisfies WelcomeMsg);
+    client.send("pickups", this.pickupsMsg());
     this.sendRoster();
   }
 
@@ -218,6 +221,8 @@ export class ArenaRoom extends Room {
       p.history.push({ tick: this.tick, x: p.move.x, y: p.move.y, z: p.move.z, alive: p.alive });
       if (p.history.length > HISTORY_TICKS) p.history.shift();
     }
+
+    this.updatePickups(now);
 
     this.sendSnapshots(now);
   }
@@ -316,6 +321,37 @@ export class ArenaRoom extends Room {
     }
   }
 
+  // ---------- Botiquines ----------
+
+  private pickupsMsg(): PickupsMsg {
+    return { active: PICKUPS.filter((k) => this.pickupRespawn.get(k.id) === 0).map((k) => k.id) };
+  }
+
+  /** El servidor decide quién recoge un botiquín: basta con estar encima. */
+  private updatePickups(now: number) {
+    let changed = false;
+    for (const k of PICKUPS) {
+      const at = this.pickupRespawn.get(k.id)!;
+      if (at !== 0) {
+        if (now >= at) { this.pickupRespawn.set(k.id, 0); changed = true; }
+        continue;
+      }
+      for (const p of this.players.values()) {
+        if (!p.alive || p.hp >= MAX_HP) continue;
+        const dx = p.move.x - k.x, dz = p.move.z - k.z, dy = p.move.y - k.y;
+        if (dx * dx + dz * dz < 1.1 * 1.1 && dy > -0.5 && dy < 1.5) {
+          const before = p.hp;
+          p.hp = Math.min(MAX_HP, p.hp + k.amount);
+          p.client.send("picked", { id: k.id, amount: p.hp - before } satisfies PickedMsg);
+          this.pickupRespawn.set(k.id, now + k.respawnMs);
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) this.broadcast("pickups", this.pickupsMsg());
+  }
+
   private respawn(p: Player) {
     const others = [...this.players.values()].filter((q) => q !== p && q.alive);
     // Elegimos el punto de aparición más lejano a los demás jugadores vivos.
@@ -394,7 +430,7 @@ export class ArenaRoom extends Room {
           others.push([
             q.id,
             round2(q.move.x), round2(q.move.y), round2(q.move.z),
-            round3(q.yaw), round3(q.pitch),
+            round3(q.yaw), round3(q.pitch), q.hp,
           ]);
         }
       }

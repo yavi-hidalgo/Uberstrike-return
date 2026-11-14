@@ -1,120 +1,122 @@
-// Escena 3D: mapa, jugadores, arma y efectos.
+// Escena 3D: entorno, mapa, jugadores, arma, efectos y postprocesado.
 import * as THREE from "three";
-import { EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_RADIUS } from "../../shared/src/constants";
-import { MAP_BOXES, ARENA_HALF } from "../../shared/src/map";
-import { HEAD_SIZE } from "../../shared/src/physics";
+import {
+  BloomEffect, EffectComposer, EffectPass, RenderPass, SMAAEffect,
+  ToneMappingEffect, ToneMappingMode, VignetteEffect, type Effect,
+} from "postprocessing";
+import { EYE_HEIGHT } from "../../shared/src/constants";
+import { ARENA_HALF } from "../../shared/src/map";
+import { Environment, MOON_DIR } from "./environment";
+import { buildMap, type MapVisuals } from "./mapbuilder";
+import { ShotEffects, ViewWeapon } from "./weapon";
+import { Avatar, loadAvatarModel } from "./avatars";
 
-const PLAYER_COLORS = [0xff5d5d, 0x5da9ff, 0x6dff8a, 0xffd25d, 0xc77dff, 0x5dfff0, 0xff8ad8, 0xffffff];
+export type Quality = "low" | "medium" | "high";
+
+export function loadQuality(): Quality {
+  try {
+    const q = localStorage.getItem("arena.quality");
+    if (q === "low" || q === "medium" || q === "high") return q;
+  } catch { /* sin storage */ }
+  return "medium";
+}
 
 export class World {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(75, 1, 0.05, 400);
-  private gun = new THREE.Group();
-  private muzzle: THREE.Mesh;
-  private recoil = 0;
+  readonly camera = new THREE.PerspectiveCamera(72, 1, 0.03, 2000);
+  readonly weapon = new ViewWeapon();
+  readonly effects: ShotEffects;
+  private composer: EffectComposer | null = null;
+  private env: Environment;
+  private map: MapVisuals;
   private avatars = new Map<number, Avatar>();
-  private effects: { obj: THREE.Object3D; life: number; max: number; fade?: THREE.Material }[] = [];
+  private tracers: { obj: THREE.Line; life: number; mat: THREE.LineBasicMaterial }[] = [];
+  private time = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  constructor(canvas: HTMLCanvasElement, readonly quality: Quality) {
+    const usePost = quality !== "low";
+    this.renderer = new THREE.WebGLRenderer({
+      canvas, antialias: !usePost, powerPreference: "high-performance", stencil: false,
+    });
+    const dpr = window.devicePixelRatio || 1;
+    this.renderer.setPixelRatio(quality === "high" ? Math.min(dpr, 1.5) : 1);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = usePost ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.shadowMap.enabled = quality !== "low";
+    this.renderer.shadowMap.type = quality === "high" ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
-    this.scene.background = new THREE.Color(0x87a8d0);
-    this.scene.fog = new THREE.Fog(0x87a8d0, 40, 140);
+    // Entorno
+    this.env = new Environment(quality === "low" ? 600 : quality === "medium" ? 1500 : 2500);
+    this.scene.add(this.env.group);
+    this.scene.fog = new THREE.FogExp2(0x161d33, 0.0042);
 
-    this.scene.add(new THREE.HemisphereLight(0xdde8ff, 0x3a3226, 1.1));
-    const sun = new THREE.DirectionalLight(0xfff1dd, 2.2);
-    sun.position.set(25, 40, 15);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    const sc = sun.shadow.camera;
-    sc.left = sc.bottom = -ARENA_HALF - 5;
-    sc.right = sc.top = ARENA_HALF + 5;
+    // Luz ambiental y reflejos a partir del cielo
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envTex = pmrem.fromScene(this.env.skyOnlyScene(), 0.02).texture;
+    this.scene.environment = envTex;
+    this.scene.environmentIntensity = 1.6;
+    pmrem.dispose();
+
+    // Luz de luna con sombras y luz de cielo
+    this.scene.add(new THREE.HemisphereLight(0x5a6fa8, 0x1a1f2c, 0.9));
+    const moon = new THREE.DirectionalLight(0xbfd0ff, 2.1);
+    moon.position.copy(MOON_DIR).multiplyScalar(60);
+    moon.castShadow = quality !== "low";
+    const sz = quality === "high" ? 4096 : 2048;
+    moon.shadow.mapSize.set(sz, sz);
+    const sc = moon.shadow.camera;
+    sc.left = sc.bottom = -ARENA_HALF - 6;
+    sc.right = sc.top = ARENA_HALF + 6;
     sc.near = 1;
-    sc.far = 120;
-    this.scene.add(sun);
+    sc.far = 140;
+    moon.shadow.bias = -0.0004;
+    moon.shadow.normalBias = 0.03;
+    if (quality === "high") moon.shadow.radius = 3;
+    this.scene.add(moon);
 
-    this.buildMap();
+    // Mapa
+    this.map = buildMap(quality);
+    this.scene.add(this.map.group);
 
+    // Arma en primera persona
     this.camera.rotation.order = "YXZ";
+    this.camera.add(this.weapon.root);
     this.scene.add(this.camera);
-    this.muzzle = this.buildGun();
-    this.camera.add(this.gun);
+    this.effects = new ShotEffects(this.scene, quality === "low" ? 24 : 64);
+
+    if (usePost) {
+      this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType });
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      const effects: Effect[] = [
+        new BloomEffect({ intensity: 1.1, luminanceThreshold: 0.75, luminanceSmoothing: 0.2, mipmapBlur: true, radius: 0.7 }),
+        new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }),
+        new VignetteEffect({ offset: 0.32, darkness: 0.55 }),
+      ];
+      if (quality === "high") effects.push(new SMAAEffect());
+      this.composer.addPass(new EffectPass(this.camera, ...effects));
+    }
 
     this.resize();
     window.addEventListener("resize", () => this.resize());
   }
 
-  private resize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-  }
-
-  private buildMap() {
-    // Suelo con cuadrícula
-    const size = ARENA_HALF * 2;
-    const tex = gridTexture();
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(size / 4, size / 4);
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(size + 4, size + 4),
-      new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }),
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    this.scene.add(floor);
-
-    for (const b of MAP_BOXES) {
-      const w = b.max[0] - b.min[0], h = b.max[1] - b.min[1], d = b.max[2] - b.min[2];
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(w, h, d),
-        new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.8 }),
-      );
-      mesh.position.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      // bordes para leer mejor la geometría
-      const edges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(mesh.geometry),
-        new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 }),
-      );
-      mesh.add(edges);
+  /** Carga los modelos externos. Hay que esperarla antes de crear jugadores. */
+  async load() {
+    try {
+      await loadAvatarModel(`${import.meta.env.BASE_URL}assets/models/robot.glb`);
+    } catch (e) {
+      console.warn("No se pudo cargar el modelo de jugador; se usan cápsulas.", e);
     }
   }
 
-  private buildGun(): THREE.Mesh {
-    const dark = new THREE.MeshStandardMaterial({ color: 0x2b2f38, roughness: 0.5, metalness: 0.6 });
-    const accent = new THREE.MeshStandardMaterial({ color: 0xff6b3d, roughness: 0.6 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.5), dark);
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.3), dark);
-    barrel.position.set(0, 0.02, -0.38);
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.07), accent);
-    grip.position.set(0, -0.1, 0.1);
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.08), accent);
-    mag.position.set(0, -0.1, -0.08);
-    this.gun.add(body, barrel, grip, mag);
-    this.gun.position.set(0.2, -0.19, -0.5);
-    this.gun.scale.setScalar(0.42);
-
-    const flash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.06, 8, 8),
-      new THREE.MeshBasicMaterial({ color: 0xffe08a }),
-    );
-    flash.position.set(0, 0.02, -0.56);
-    flash.visible = false;
-    this.gun.add(flash);
-    return flash;
-  }
-
-  /** Posición del cañón en coordenadas del mundo (para las trazadoras). */
-  muzzleWorld(): THREE.Vector3 {
-    return this.muzzle.getWorldPosition(new THREE.Vector3());
+  private resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    this.renderer.setSize(w, h, false);
+    this.composer?.setSize(w, h);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
   }
 
   setView(x: number, y: number, z: number, yaw: number, pitch: number) {
@@ -122,32 +124,34 @@ export class World {
     this.camera.rotation.set(pitch, yaw, 0);
   }
 
-  setGunVisible(v: boolean) {
-    this.gun.visible = v;
+  // ---------- Disparos ----------
+
+  /** Disparo propio: fogonazo, casquillo, trazadora e impacto. */
+  localShot(hit: THREE.Vector3, normal: THREE.Vector3, kind: string | null, feetY: number) {
+    this.weapon.fire();
+    this.camera.updateMatrixWorld(true);
+    const from = this.weapon.muzzleWorld();
+    this.tracer(from, hit, 0xffe2a8);
+    this.effects.impact(hit, normal, kind);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    this.effects.ejectShell(this.weapon.ejectorWorld(), right, up, feetY);
   }
 
-  kickGun() {
-    this.recoil = 1;
-    this.muzzle.visible = true;
+  remoteShot(from: THREE.Vector3, to: THREE.Vector3, normal: THREE.Vector3 | null, kind: string | null) {
+    this.tracer(from, to, 0xff9a6b);
+    if (normal) this.effects.impact(to, normal, kind);
   }
 
-  tracer(from: THREE.Vector3, to: THREE.Vector3, color = 0xffe7a0) {
+  private tracer(from: THREE.Vector3, to: THREE.Vector3, color: number) {
     const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 });
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
     const line = new THREE.Line(geo, mat);
     this.scene.add(line);
-    this.effects.push({ obj: line, life: 0.08, max: 0.08, fade: mat });
-
-    const spark = new THREE.Mesh(
-      new THREE.SphereGeometry(0.08, 6, 6),
-      new THREE.MeshBasicMaterial({ color: 0xffc46b, transparent: true }),
-    );
-    spark.position.copy(to);
-    this.scene.add(spark);
-    this.effects.push({ obj: spark, life: 0.15, max: 0.15, fade: spark.material });
+    this.tracers.push({ obj: line, life: 0.06, mat });
   }
 
-  // ---------- Avatares de los demás jugadores ----------
+  // ---------- Jugadores ----------
 
   upsertAvatar(id: number, name: string): Avatar {
     let a = this.avatars.get(id);
@@ -155,10 +159,14 @@ export class World {
       a = new Avatar(id, name);
       this.avatars.set(id, a);
       this.scene.add(a.group);
-    } else if (a.name !== name) {
+    } else {
       a.setName(name);
     }
     return a;
+  }
+
+  getAvatar(id: number): Avatar | undefined {
+    return this.avatars.get(id);
   }
 
   removeAvatar(id: number) {
@@ -172,122 +180,45 @@ export class World {
     return [...this.avatars.keys()];
   }
 
-  render(dt: number) {
-    // retroceso del arma
-    this.recoil = Math.max(0, this.recoil - dt * 12);
-    this.gun.position.z = -0.5 + this.recoil * 0.04;
-    this.gun.rotation.x = this.recoil * 0.12;
-    if (this.recoil < 0.6) this.muzzle.visible = false;
+  // ---------- Botiquines ----------
 
-    for (let i = this.effects.length - 1; i >= 0; i--) {
-      const e = this.effects[i];
-      e.life -= dt;
-      if (e.fade) (e.fade as THREE.Material & { opacity: number }).opacity = Math.max(0, e.life / e.max);
-      if (e.life <= 0) {
-        this.scene.remove(e.obj);
-        disposeObject(e.obj);
-        this.effects.splice(i, 1);
+  setPickups(active: number[]) {
+    const set = new Set(active);
+    for (const [id, v] of this.map.pickups) {
+      const on = set.has(id);
+      v.item.visible = on;
+      v.glow.visible = on;
+      if (v.light) v.light.visible = on;
+    }
+  }
+
+  render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean }) {
+    this.time += dt;
+    this.env.update(dt, this.time, this.camera.position);
+    if (this.map.dome) this.map.dome.rotation.y += dt * 0.02;
+    const blink = Math.sin(this.time * 3) > 0.2;
+    for (const b of this.map.blinkers) b.visible = blink;
+    for (const v of this.map.pickups.values()) {
+      v.item.rotation.y += dt * 1.4;
+      v.item.position.y = v.baseY + Math.sin(this.time * 2.2) * 0.07;
+    }
+    for (const a of this.avatars.values()) a.update(dt);
+
+    for (let i = this.tracers.length - 1; i >= 0; i--) {
+      const t = this.tracers[i];
+      t.life -= dt;
+      t.mat.opacity = Math.max(0, t.life / 0.06) * 0.85;
+      if (t.life <= 0) {
+        this.scene.remove(t.obj);
+        t.obj.geometry.dispose();
+        t.mat.dispose();
+        this.tracers.splice(i, 1);
       }
     }
-    this.renderer.render(this.scene, this.camera);
+    this.effects.update(dt);
+    this.weapon.update(dt, { ...view, visible: view.alive });
+
+    if (this.composer) this.composer.render(dt);
+    else this.renderer.render(this.scene, this.camera);
   }
-}
-
-export class Avatar {
-  readonly group = new THREE.Group();
-  private head: THREE.Group;
-  private label: THREE.Sprite;
-  name: string;
-
-  constructor(readonly id: number, name: string) {
-    this.name = name;
-    const color = PLAYER_COLORS[id % PLAYER_COLORS.length];
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x1d2028, roughness: 0.7 });
-
-    const bodyH = PLAYER_HEIGHT - HEAD_SIZE;
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(PLAYER_RADIUS * 0.9, bodyH - PLAYER_RADIUS * 1.8, 4, 10), mat);
-    body.position.y = bodyH / 2;
-    body.castShadow = true;
-
-    this.head = new THREE.Group();
-    this.head.position.y = bodyH + HEAD_SIZE / 2;
-    const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.42, HEAD_SIZE + 0.05, 0.42), mat);
-    headMesh.castShadow = true;
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.05), new THREE.MeshBasicMaterial({ color: 0x9be8ff }));
-    visor.position.set(0, 0.03, -0.22);
-    const gun = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.6), dark);
-    gun.position.set(0.3, -0.35, -0.35);
-    this.head.add(headMesh, visor, gun);
-
-    this.label = makeLabel(name);
-    this.label.position.y = PLAYER_HEIGHT + 0.45;
-
-    this.group.add(body, this.head, this.label);
-  }
-
-  setName(name: string) {
-    this.name = name;
-    this.group.remove(this.label);
-    this.label = makeLabel(name);
-    this.label.position.y = PLAYER_HEIGHT + 0.45;
-    this.group.add(this.label);
-  }
-
-  setPose(x: number, y: number, z: number, yaw: number, pitch: number) {
-    this.group.position.set(x, y, z);
-    this.group.rotation.y = yaw;
-    this.head.rotation.x = pitch;
-  }
-
-  setVisible(v: boolean) {
-    this.group.visible = v;
-  }
-}
-
-function makeLabel(text: string): THREE.Sprite {
-  const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 64;
-  const ctx = c.getContext("2d")!;
-  ctx.font = "bold 32px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = "rgba(0,0,0,0.7)";
-  ctx.strokeText(text, 128, 32);
-  ctx.fillStyle = "#fff";
-  ctx.fillText(text, 128, 32);
-  const tex = new THREE.CanvasTexture(c);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: true, transparent: true }));
-  sprite.scale.set(1.6, 0.4, 1);
-  return sprite;
-}
-
-function gridTexture(): THREE.CanvasTexture {
-  const c = document.createElement("canvas");
-  c.width = c.height = 128;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#6b7280";
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle = "#636a77";
-  ctx.fillRect(0, 0, 64, 64);
-  ctx.fillRect(64, 64, 64, 64);
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(0, 0, 128, 128);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
-}
-
-function disposeObject(obj: THREE.Object3D) {
-  obj.traverse((o) => {
-    const m = o as THREE.Mesh;
-    m.geometry?.dispose();
-    const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-    else mat?.dispose();
-  });
 }
