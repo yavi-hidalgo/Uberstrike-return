@@ -40,6 +40,7 @@ export class World {
   private tracers: { obj: THREE.Line; life: number; mat: THREE.LineBasicMaterial }[] = [];
   private time = 0;
   /** El arma en primera persona se dibuja en su propia escena, con luz de estudio. */
+  private hemi!: THREE.HemisphereLight;
   private weaponScene = new THREE.Scene();
   private weaponCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 20);
 
@@ -69,7 +70,8 @@ export class World {
     pmrem.dispose();
 
     // Luz de luna con sombras y luz de cielo
-    this.scene.add(new THREE.HemisphereLight(0x5a6fa8, 0x1a1f2c, 0.9));
+    this.hemi = new THREE.HemisphereLight(0x6a7fb8, 0x2a2f3c, 0.9);
+    this.scene.add(this.hemi);
     const moon = new THREE.DirectionalLight(0xbfd0ff, 2.1);
     moon.position.copy(MOON_DIR).multiplyScalar(60);
     moon.castShadow = quality !== "low";
@@ -127,7 +129,14 @@ export class World {
       this.loadSkyLight(`${base}assets/hdri/rogland_clear_night_1k.hdr`),
       this.mapDef.model ? this.loadMapModel() : Promise.resolve(),
     ]);
-    if (this.mapDef.model) return;
+    if (this.mapDef.model) {
+      // Noche urbana: más luz de ambiente para que se lean las texturas del escenario.
+      // Se aplica al final porque el cielo HDRI se carga en paralelo y fija su propia intensidad.
+      this.scene.environmentIntensity = 2.2;
+      this.renderer.toneMappingExposure = 1.35;
+      this.hemi.intensity = 1.7;
+      return;
+    }
     // Objetos reales y reemplazo de las versiones generadas por código
     this.scene.add(buildProps(this.quality));
     const replaceRocks = hasModel("rock_09"), replaceLamps = hasModel("street_lamp_02");
@@ -157,7 +166,14 @@ export class World {
       for (const mat of mats) {
         const sm = mat as THREE.MeshStandardMaterial;
         if (sm.map) sm.map.anisotropy = 8;
-        if (sm.transparent && sm.alphaMap == null && sm.opacity >= 0.99) sm.transparent = false;
+        // Vallas, rejas, cables y carteles usan el canal alfa de la textura: recorte nítido
+        // (también proyecta sombras con su forma) en lugar de mezcla, que se ordena mal.
+        if (sm.transparent || sm.alphaTest > 0) {
+          sm.alphaTest = Math.max(sm.alphaTest, 0.4);
+          sm.transparent = false;
+          sm.depthWrite = true;
+          sm.side = THREE.DoubleSide;
+        }
       }
     });
     this.scene.add(root);
