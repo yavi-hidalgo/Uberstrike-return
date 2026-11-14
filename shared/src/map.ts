@@ -141,6 +141,74 @@ export const MAP_BOXES: Box[] = [
   box(22.6, 0, 24.2, 1, 1, 1, "crate"),
 ];
 
+// ---------- Objetos (modelos CC0 de Poly Haven) ----------
+// `size` es el tamaño real del modelo (m) y se usa para la colisión.
+// Los que tienen `solid: false` son solo decoración (fuera de la arena o muy pequeños).
+export interface Prop {
+  model: string;
+  x: number; y?: number; z: number;
+  rot?: number;
+  scale?: number | [number, number, number];
+  size?: [number, number, number];
+  solid?: boolean;
+  light?: boolean; // luz cálida (faroles, farolas)
+}
+
+export const PROPS: Prop[] = [
+  // Barriles junto a los contenedores
+  { model: "Barrel_01", x: 11.3, z: -24.5, size: [0.6, 0.9, 0.6] },
+  { model: "Barrel_01", x: 11.35, z: -23.75, rot: 1.2, size: [0.6, 0.9, 0.6] },
+  { model: "Barrel_01", x: 10.6, z: -24.15, rot: 2.4, size: [0.6, 0.9, 0.6] },
+  { model: "barrel_03", x: -11.35, z: 24.45, size: [0.66, 0.95, 0.66] },
+  { model: "barrel_03", x: -11.4, z: 23.65, rot: 0.8, size: [0.66, 0.95, 0.66] },
+  // Generador y bidones junto a la antena
+  { model: "portable_generator", x: -19.7, z: 22.6, rot: 1.9, size: [0.85, 0.6, 0.85] },
+  { model: "metal_jerrycan", x: -19.6, z: 21.5, rot: 0.3, size: [0.4, 0.46, 0.4] },
+  { model: "metal_jerrycan", x: -19.05, z: 21.65, rot: -0.4, size: [0.4, 0.46, 0.4] },
+  // Armarios eléctricos contra la base del observatorio
+  { model: "utility_box_01", x: 6.75, z: 2.2, rot: Math.PI / 2, size: [0.5, 1.12, 0.56] },
+  { model: "utility_box_02", x: -6.75, z: -2.2, rot: -Math.PI / 2, size: [0.5, 1.12, 0.96] },
+  // Caja de herramientas junto al contenedor azul
+  { model: "metal_tool_chest", x: -15, z: 22.4, size: [0.72, 0.66, 0.44] },
+  // Estufas de barril junto a las puertas de las cabañas
+  { model: "barrel_stove", x: -14.9, z: -21.4, size: [0.62, 0.86, 0.62] },
+  { model: "barrel_stove", x: 14.9, z: 21.4, size: [0.62, 0.86, 0.62] },
+  // Cajas de madera apiladas (decoración pequeña)
+  { model: "wooden_crate_01", x: 6.2, z: -9.6, rot: 0.3, size: [0.86, 0.36, 0.44] },
+  { model: "wooden_crate_01", x: -6.2, z: 9.6, rot: -0.3, size: [0.86, 0.36, 0.44] },
+  // Faroles sobre las cajas de las esquinas
+  { model: "Lantern_01", x: -23.55, y: 1.2, z: -23.6, solid: false, light: true },
+  { model: "Lantern_01", x: 23.55, y: 1.2, z: 23.6, solid: false, light: true },
+];
+
+/** Árboles y rocas fuera de la valla: solo decoración, alrededor de la cumbre. */
+export const SCENERY: Prop[] = (() => {
+  const out: Prop[] = [];
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  // Abetos: el modelo trae 3 variantes (a, b, c); `scale` es la altura deseada en metros.
+  for (let i = 0; i < 34; i++) {
+    const a = (i / 34) * Math.PI * 2 + rnd() * 0.12;
+    const r = 33.5 + rnd() * 9;
+    out.push({ model: `fir_sapling#${i % 3}`, x: Math.cos(a) * r, z: Math.sin(a) * r, rot: rnd() * Math.PI * 2, scale: 5 + rnd() * 5, solid: false });
+  }
+  for (let i = 0; i < 14; i++) {
+    const a = rnd() * Math.PI * 2;
+    const r = 32.5 + rnd() * 9;
+    const sc = 18 + rnd() * 22;
+    out.push({ model: i % 2 ? "rock_09" : "stone_01", x: Math.cos(a) * r, z: Math.sin(a) * r, rot: rnd() * Math.PI * 2, scale: sc, solid: false });
+  }
+  return out;
+})();
+
+for (const p of PROPS) {
+  if (p.solid === false || !p.size) continue;
+  const [w, h, d] = p.size;
+  // si está girado ~90°, se intercambian ancho y fondo
+  const turned = Math.abs(Math.sin(p.rot ?? 0)) > 0.7;
+  MAP_BOXES.push(box(p.x, p.y ?? 0, p.z, turned ? d : w, h, turned ? w : d, "metal", true));
+}
+
 export const MAP_FEATURES: Feature[] = [
   { type: "observatory", x: 0, z: 0, baseRadius: OBS_R, baseHeight: OBS_H, domeRadius: DOME_R },
   { type: "stairs", x: 0, z: OBS_R - 0.3, dir: "s", steps: 4, stepH: OBS_H / 4, width: 3 },

@@ -65,6 +65,7 @@ function boulder(b: Box): THREE.Object3D {
   geo.computeVertexNormals();
   applyWorldUV(geo, 3, new THREE.Vector3(cx, cy, cz));
   const g = new THREE.Group();
+  g.userData.proceduralRock = true;
   const m = new THREE.Mesh(geo, material("rock"));
   m.position.set(cx, cy, cz);
   g.add(m);
@@ -181,7 +182,7 @@ function observatory(f: Extract<Feature, { type: "observatory" }>): { group: THR
   // UV propios: paneles en gajos
   const sp = shellGeo.getAttribute("position") as THREE.BufferAttribute;
   const suv = shellGeo.getAttribute("uv") as THREE.BufferAttribute;
-  for (let i = 0; i < sp.count; i++) suv.setXY(i, suv.getX(i) * 8, suv.getY(i) * 2);
+  for (let i = 0; i < sp.count; i++) suv.setXY(i, suv.getX(i) * 2 * Math.PI * f.domeRadius, suv.getY(i) * f.domeRadius * 1.6);
   void sp;
   const shell = new THREE.Mesh(shellGeo, material("metalWhite"));
   shell.position.y = 0.42;
@@ -436,25 +437,28 @@ function lamp(f: Extract<Feature, { type: "lamp" }>, withLight: boolean): THREE.
   const dark = material("metalDark");
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 3.6, 10), dark);
   pole.position.y = 1.8;
+  pole.userData.lampPole = true;
   g.add(pole);
+  // Cabeza de farola sencilla: se oculta cuando carga el farol real (props.ts)
+  const head = new THREE.Group();
+  head.userData.proceduralLampHead = true;
   const arm = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.06, 0.08), dark);
   arm.position.set(0.25, 3.55, 0);
-  g.add(arm);
-  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.22, 0.18, 12), dark);
-  head.position.set(0.5, 3.45, 0);
-  g.add(head);
+  const lampHead = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.22, 0.18, 12), dark);
+  lampHead.position.set(0.5, 3.45, 0);
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshStandardMaterial({ color: 0x222, emissive: 0xffd9a0, emissiveIntensity: 5 }));
   bulb.position.set(0.5, 3.36, 0);
-  g.add(bulb);
+  head.add(arm, lampHead, bulb);
   if (withLight) {
     const l = new THREE.PointLight(0xffc98a, 9, 12, 2);
     l.position.set(0.5, 3.2, 0);
-    g.add(l);
+    head.add(l);
   }
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: softSprite("rgba(255,210,150,0.55)"), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   glow.scale.setScalar(1.6);
   glow.position.set(0.5, 3.36, 0);
-  g.add(glow);
+  head.add(glow);
+  g.add(head);
   castAll(g, true, false);
   return g;
 }

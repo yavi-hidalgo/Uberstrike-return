@@ -3,7 +3,7 @@ import {
   DT, EYE_HEIGHT, IDLE_INPUT_MS, KEY, KEY_MASK, MAX_ABUSE_STRIKES, MAX_HP,
   MAX_INPUT_CREDITS, MAX_MESSAGES_PER_SECOND, MAX_PITCH, MAX_PLAYERS,
   MAX_QUEUED_INPUTS, NAME_MAX_LEN, PLAYER_HEIGHT, RESPAWN_MS, TICK_RATE,
-  VISIBILITY_GRACE_MS, WEAPON,
+  SWITCH_TICKS, VISIBILITY_GRACE_MS, WEAPONS,
 } from "../../shared/src/constants";
 import { PICKUPS, SPAWN_POINTS } from "../../shared/src/map";
 import {
@@ -31,9 +31,12 @@ class Player {
   hp = MAX_HP;
   alive = false;
   respawnAt = 0;
-  ammo: number = WEAPON.magazine;
+  weapon = 0; // índice en WEAPONS
+  ammo: number[] = WEAPONS.map((w) => w.magazine);
   reloadTicks = 0;
   fireCooldown = 0;
+  switchTicks = 0;
+  prevFire = false;
 
   queue: InputCmd[] = [];
   lastSeq = 0;
@@ -235,19 +238,33 @@ export class ArenaRoom extends Room {
 
     stepMove(p.move, cmd.keys, cmd.yaw, DT);
 
+    const w = WEAPONS[p.weapon];
     if (p.fireCooldown > 0) p.fireCooldown--;
+    if (p.switchTicks > 0) p.switchTicks--;
     if (p.reloadTicks > 0) {
       p.reloadTicks--;
-      if (p.reloadTicks === 0) p.ammo = WEAPON.magazine;
+      if (p.reloadTicks === 0) p.ammo[p.weapon] = w.magazine;
     }
-    if ((cmd.keys & KEY.RELOAD) && p.ammo < WEAPON.magazine && p.reloadTicks === 0) {
-      p.reloadTicks = WEAPON.reloadTicks;
+    // Cambio de arma: cancela la recarga y tarda un momento en estar lista
+    const want = (cmd.keys & KEY.WEAPON1) ? 0 : (cmd.keys & KEY.WEAPON2) ? 1 : p.weapon;
+    if (want !== p.weapon) {
+      p.weapon = want;
+      p.reloadTicks = 0;
+      p.switchTicks = SWITCH_TICKS;
+      p.prevFire = (cmd.keys & KEY.FIRE) !== 0;
+      return;
     }
-    if ((cmd.keys & KEY.FIRE) && p.fireCooldown === 0 && p.reloadTicks === 0 && p.ammo > 0) {
-      p.ammo--;
-      p.fireCooldown = WEAPON.fireIntervalTicks;
+    const firing = (cmd.keys & KEY.FIRE) !== 0;
+    const trigger = w.semiAuto ? firing && !p.prevFire : firing;
+    p.prevFire = firing;
+    if ((cmd.keys & KEY.RELOAD) && p.ammo[p.weapon] < w.magazine && p.reloadTicks === 0 && p.switchTicks === 0) {
+      p.reloadTicks = w.reloadTicks;
+    }
+    if (trigger && p.fireCooldown === 0 && p.reloadTicks === 0 && p.switchTicks === 0 && p.ammo[p.weapon] > 0) {
+      p.ammo[p.weapon]--;
+      p.fireCooldown = w.fireIntervalTicks;
       this.fire(p);
-      if (p.ammo === 0) p.reloadTicks = WEAPON.reloadTicks;
+      if (p.ammo[p.weapon] === 0) p.reloadTicks = w.reloadTicks;
     }
   }
 
@@ -263,7 +280,8 @@ export class ArenaRoom extends Room {
   private fire(p: Player) {
     const ox = p.move.x, oy = p.move.y + EYE_HEIGHT, oz = p.move.z;
     const [dx, dy, dz] = aimDirection(p.yaw, p.pitch);
-    const wallT = rayMap(ox, oy, oz, dx, dy, dz, WEAPON.range);
+    const w = WEAPONS[p.weapon];
+    const wallT = rayMap(ox, oy, oz, dx, dy, dz, w.range);
 
     // El tirador vio a los demás con retraso (su ping + interpolación), así que
     // comprobamos el impacto contra donde estaban en ese momento, con un límite.
@@ -302,7 +320,7 @@ export class ArenaRoom extends Room {
     }
 
     if (!victim) return;
-    const damage = headshot ? WEAPON.headshotDamage : WEAPON.damage;
+    const damage = headshot ? w.headshotDamage : w.damage;
     victim.hp = Math.max(0, victim.hp - damage);
     const killed = victim.hp === 0;
     p.client.send("hit", { damage, headshot, kill: killed } satisfies HitMsg);
@@ -372,7 +390,9 @@ export class ArenaRoom extends Room {
     p.pitch = 0;
     p.hp = MAX_HP;
     p.alive = true;
-    p.ammo = WEAPON.magazine;
+    p.ammo = WEAPONS.map((x) => x.magazine);
+    p.weapon = 0;
+    p.switchTicks = 0;
     p.reloadTicks = 0;
     p.fireCooldown = 0;
     p.history = [];
@@ -442,7 +462,9 @@ export class ArenaRoom extends Room {
           seq: r.lastSeq,
           hp: r.hp,
           alive: r.alive,
-          ammo: r.ammo,
+          ammo: r.ammo[r.weapon],
+          weapon: r.weapon,
+          switching: r.switchTicks > 0,
           reloading: r.reloadTicks > 0,
           respawnIn: r.alive ? 0 : Math.max(0, r.respawnAt - now),
           ping: Math.round(r.rttMs),

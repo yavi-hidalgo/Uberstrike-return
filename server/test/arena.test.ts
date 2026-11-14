@@ -5,7 +5,7 @@ import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { Client, type Room } from "colyseus.js";
 import { ArenaRoom } from "../src/ArenaRoom";
-import { DT, KEY, MOVE_SPEED, WEAPON } from "../../shared/src/constants";
+import { DT, KEY, MOVE_SPEED, SWITCH_TICKS, WEAPON, WEAPONS } from "../../shared/src/constants";
 import type { SnapshotMsg } from "../../shared/src/protocol";
 
 const PORT = 2600 + Math.floor(Math.random() * 300);
@@ -178,8 +178,31 @@ test("cadencia de disparo limitada aunque se mande FIRE en cada input", async ()
   Object.assign(p.move, { x: -27, y: 0, z: -12, vy: 0, onGround: true });
   for (let i = 1; i <= 200; i++) a.room.send("input", { seq: i, keys: KEY.FIRE, yaw: 0, pitch: 0 });
   await sleep(1000);
-  const used = WEAPON.magazine - p.ammo;
+  const used = WEAPON.magazine - p.ammo[0];
   const maxShots = Math.ceil((1.2 * 30) / WEAPON.fireIntervalTicks) + 1;
   assert.ok(used <= maxShots, `gastó ${used} balas en ~1 s (máximo ${maxShots})`);
   await a.room.leave().catch(() => {});
+});
+
+test("cambio de arma y pistola semiautomática: mantener el gatillo dispara solo una vez", async () => {
+  const a = await join("Pistolero");
+  const p = serverPlayer(a);
+  Object.assign(p.move, { x: -27, y: 0, z: -12, vy: 0, onGround: true });
+  let seq = 1;
+  a.room.send("input", { seq: seq++, keys: KEY.WEAPON2, yaw: 0, pitch: 0 });
+  for (let i = 0; i < SWITCH_TICKS + 2; i++) {
+    a.room.send("input", { seq: seq++, keys: 0, yaw: 0, pitch: 0 });
+    await sleep(DT * 1000);
+  }
+  assert.equal(p.weapon, 1);
+  // Gatillo mantenido 1 segundo: la pistola solo dispara una vez
+  for (let i = 0; i < 30; i++) {
+    a.room.send("input", { seq: seq++, keys: KEY.FIRE, yaw: 0, pitch: 0 });
+    await sleep(DT * 1000);
+  }
+  await sleep(200);
+  assert.equal(p.ammo[1], WEAPONS[1].magazine - 1);
+  assert.equal(p.ammo[0], WEAPONS[0].magazine, "el rifle no se toca");
+  assert.equal(a.last!.you.weapon, 1);
+  await a.room.leave();
 });

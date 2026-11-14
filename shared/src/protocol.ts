@@ -15,7 +15,9 @@ export interface SelfSnapshot {
   seq: number; // último input procesado
   hp: number;
   alive: boolean;
-  ammo: number;
+  ammo: number; // del arma en mano
+  weapon: number; // índice en WEAPONS
+  switching: boolean;
   reloading: boolean;
   respawnIn: number; // ms, 0 si está vivo
   ping: number; // ms, medido por el servidor

@@ -259,30 +259,61 @@ export type MaterialName =
   | "metalDark" | "snow" | "flagstone" | "crate";
 
 const cache = new Map<MaterialName, THREE.MeshStandardMaterial>();
+const loader = new THREE.TextureLoader();
+const texCache = new Map<string, THREE.Texture>();
+
+/** Texturas fotográficas (Poly Haven, CC0): color, relieve y ARM (oclusión, rugosidad, metal). */
+function photo(file: string, kind: "diff" | "nor" | "arm", metersPerTile: number): THREE.Texture {
+  const key = `${file}_${kind}_${metersPerTile}`;
+  const hit = texCache.get(key);
+  if (hit) return hit;
+  const t = loader.load(`${import.meta.env.BASE_URL}assets/textures/${file}_${kind}.webp`);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.setScalar(1 / metersPerTile);
+  t.anisotropy = 8;
+  if (kind === "diff") t.colorSpace = THREE.SRGBColorSpace;
+  texCache.set(key, t);
+  return t;
+}
+
+function photoMaterial(file: string, meters: number, opts: { tint?: number; metalness?: number; normal?: number } = {}): THREE.MeshStandardMaterial {
+  const arm = photo(file, "arm", meters);
+  const m = new THREE.MeshStandardMaterial({
+    map: photo(file, "diff", meters),
+    normalMap: photo(file, "nor", meters),
+    aoMap: arm,
+    roughnessMap: arm,
+    metalnessMap: opts.metalness ? arm : null,
+    roughness: 1,
+    metalness: opts.metalness ?? 0,
+    color: opts.tint ?? 0xffffff,
+  });
+  const n = opts.normal ?? 1;
+  m.normalScale.set(n, n);
+  return m;
+}
 
 export function material(name: MaterialName): THREE.MeshStandardMaterial {
   const hit = cache.get(name);
   if (hit) return hit;
-  let set: PBRSet;
-  let metalness = 0;
+  let m: THREE.MeshStandardMaterial;
   switch (name) {
-    case "concrete": set = concrete(); break;
-    case "rock": set = rock(); break;
-    case "wood": set = wood(); break;
-    case "woodDark": set = wood(true); break;
-    case "metalWhite": set = paintedMetal([0.86, 0.88, 0.9], false, 0.15); metalness = 0.25; break;
-    case "metalOrange": set = paintedMetal([0.78, 0.36, 0.12], true); metalness = 0.3; break;
-    case "metalBlue": set = paintedMetal([0.16, 0.3, 0.45], true); metalness = 0.3; break;
-    case "metalDark": set = paintedMetal([0.16, 0.17, 0.19]); metalness = 0.7; break;
-    case "snow": set = snow(); break;
-    case "flagstone": set = flagstone(); break;
-    case "crate": set = crate(); break;
+    case "concrete": m = photoMaterial("cracked_concrete_wall", 2.2); break;
+    case "rock": m = photoMaterial("rock_face_03", 2.7, { normal: 1.3 }); break;
+    case "wood": m = photoMaterial("wood_planks_dirt", 2); break;
+    case "woodDark": m = photoMaterial("wood_planks_dirt", 2, { tint: 0x7a6a5c }); break;
+    case "metalWhite": m = photoMaterial("metal_plate", 1.2, { tint: 0xffffff, metalness: 0.12 }); m.color.setScalar(1.6); break;
+    case "metalOrange": m = photoMaterial("metal_plate", 1.2, { tint: 0xd97a3a, metalness: 0.5 }); break;
+    case "metalBlue": m = photoMaterial("metal_plate", 1.2, { tint: 0x4f7fae, metalness: 0.5 }); break;
+    case "metalDark": m = photoMaterial("metal_plate", 1.2, { tint: 0x5c6168, metalness: 0.8 }); break;
+    case "snow": m = photoMaterial("snow_01", 3, { tint: 0xf4f7ff, normal: 0.8 }); break;
+    case "flagstone": m = photoMaterial("stone_tiles_02", 2); break;
+    case "crate": {
+      const set = crate();
+      m = new THREE.MeshStandardMaterial({ map: set.map, normalMap: set.normalMap, roughnessMap: set.roughnessMap, roughness: 1 });
+      break;
+    }
   }
-  const m = new THREE.MeshStandardMaterial({
-    map: set.map, normalMap: set.normalMap, roughnessMap: set.roughnessMap,
-    roughness: 1, metalness,
-  });
-  if (name === "snow") m.normalScale.set(0.6, 0.6);
   cache.set(name, m);
   return m;
 }
@@ -291,7 +322,8 @@ export function material(name: MaterialName): THREE.MeshStandardMaterial {
  * Proyecta UVs en coordenadas del mundo según la dirección de cada cara,
  * para que la textura tenga siempre el mismo tamaño real (sin estirarse).
  */
-export function applyWorldUV(geo: THREE.BufferGeometry, tile: number, offset = new THREE.Vector3()) {
+export function applyWorldUV(geo: THREE.BufferGeometry, _tile = 1, offset = new THREE.Vector3()) {
+  const tile = 1; // UV en metros; cada textura define su tamaño real con `repeat`
   const pos = geo.getAttribute("position") as THREE.BufferAttribute;
   const nor = geo.getAttribute("normal") as THREE.BufferAttribute;
   const uv = new Float32Array(pos.count * 2);

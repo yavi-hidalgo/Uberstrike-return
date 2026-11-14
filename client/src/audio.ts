@@ -75,6 +75,14 @@ export const sfx = {
     tone(150, 0.12, 0.45, "sine", 45);
     noise(0.5, "bandpass", 500, 0.12, 1.2, 0.6, 0.03);
   },
+  /** Pistola: más seca y aguda que el rifle. */
+  pistol: () => {
+    noise(0.04, "highpass", 3000, 0.45, 3);
+    noise(0.12, "lowpass", 2400, 0.45, 2.5);
+    tone(220, 0.08, 0.3, "sine", 70);
+    noise(0.35, "bandpass", 700, 0.08, 1.2, 0.6, 0.02);
+  },
+  switchWeapon: () => { noise(0.05, "bandpass", 1800, 0.18, 2, 3); noise(0.04, "bandpass", 2600, 0.15, 2, 4, 0.12); },
   remoteShot: (volume: number) => {
     noise(0.16, "lowpass", 900 + volume * 1200, 0.4 * volume, 2.5);
     tone(120, 0.1, 0.25 * volume, "sine", 50);

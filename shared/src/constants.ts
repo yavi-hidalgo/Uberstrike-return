@@ -16,15 +16,27 @@ export const MAX_HP = 100;
 export const RESPAWN_MS = 3000;
 export const MAX_PLAYERS = 12;
 
-export const WEAPON = {
-  name: "Rifle",
-  damage: 20,
-  headshotDamage: 40,
-  fireIntervalTicks: 4, // 1 disparo cada 4 ticks = 7.5 disparos/s
-  range: 120,
-  magazine: 30,
-  reloadTicks: 45, // 1.5 s
-} as const;
+export interface WeaponDef {
+  id: "rifle" | "pistol";
+  name: string;
+  damage: number;
+  headshotDamage: number;
+  fireIntervalTicks: number;
+  semiAuto: boolean; // hay que soltar el gatillo entre disparos
+  range: number;
+  magazine: number;
+  reloadTicks: number;
+}
+
+export const WEAPONS: WeaponDef[] = [
+  { id: "rifle", name: "Kestrel AR-7", damage: 20, headshotDamage: 40, fireIntervalTicks: 4, semiAuto: false, range: 120, magazine: 30, reloadTicks: 45 },
+  { id: "pistol", name: "Pistola de servicio", damage: 26, headshotDamage: 52, fireIntervalTicks: 5, semiAuto: true, range: 80, magazine: 12, reloadTicks: 33 },
+];
+/** Tiempo para cambiar de arma (ticks). */
+export const SWITCH_TICKS = 12;
+
+/** Compatibilidad: el arma principal. */
+export const WEAPON = WEAPONS[0];
 
 // Bits del campo "keys" de cada input.
 export const KEY = {
@@ -35,8 +47,10 @@ export const KEY = {
   JUMP: 16,
   FIRE: 32,
   RELOAD: 64,
+  WEAPON1: 128,
+  WEAPON2: 256,
 } as const;
-export const KEY_MASK = 127;
+export const KEY_MASK = 511;
 
 export const MAX_PITCH = 1.5; // ~86 grados
 export const NAME_MAX_LEN = 16;

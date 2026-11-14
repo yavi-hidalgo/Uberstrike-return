@@ -10,6 +10,8 @@ import { Environment, MOON_DIR } from "./environment";
 import { buildMap, type MapVisuals } from "./mapbuilder";
 import { ShotEffects, ViewWeapon } from "./weapon";
 import { Avatar, loadAvatarModel } from "./avatars";
+import { buildProps, hasModel, loadPropModels, pistolModel } from "./props";
+import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 
 export type Quality = "low" | "medium" | "high";
 
@@ -104,10 +106,36 @@ export class World {
 
   /** Carga los modelos externos. Hay que esperarla antes de crear jugadores. */
   async load() {
+    const base = import.meta.env.BASE_URL;
+    await Promise.all([
+      loadAvatarModel(`${base}assets/models/robot.glb`).catch((e) => console.warn("Sin modelo de jugador; se usan cápsulas.", e)),
+      loadPropModels(),
+      this.loadSkyLight(`${base}assets/hdri/rogland_clear_night_1k.hdr`),
+    ]);
+    // Objetos reales y reemplazo de las versiones generadas por código
+    this.scene.add(buildProps(this.quality));
+    const replaceRocks = hasModel("rock_09"), replaceLamps = hasModel("street_lamp_02");
+    this.map.group.traverse((o) => {
+      if (replaceRocks && o.userData.proceduralRock) o.visible = false;
+      if (replaceLamps && o.userData.proceduralLampHead) o.visible = false;
+      if (replaceLamps && o.userData.lampPole) { o.scale.y = 3.1 / 3.6; o.position.y = 3.1 / 2; }
+    });
+    const pistol = pistolModel();
+    if (pistol) this.weapon.setPistolModel(pistol);
+  }
+
+  /** Luz ambiental y reflejos a partir de una foto HDR de cielo nocturno (Poly Haven, CC0). */
+  private async loadSkyLight(url: string) {
     try {
-      await loadAvatarModel(`${import.meta.env.BASE_URL}assets/models/robot.glb`);
+      const hdr = await new HDRLoader().loadAsync(url);
+      hdr.mapping = THREE.EquirectangularReflectionMapping;
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromEquirectangular(hdr).texture;
+      this.scene.environmentIntensity = 0.9;
+      hdr.dispose();
+      pmrem.dispose();
     } catch (e) {
-      console.warn("No se pudo cargar el modelo de jugador; se usan cápsulas.", e);
+      console.warn("Sin HDRI; se usa la luz del cielo generado.", e);
     }
   }
 

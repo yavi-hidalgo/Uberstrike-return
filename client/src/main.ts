@@ -3,7 +3,7 @@ import "@fontsource/saira-condensed/500.css";
 import "@fontsource/saira-condensed/700.css";
 import "@fontsource/saira-condensed/800.css";
 import { Client, type Room } from "colyseus.js";
-import { DT, EYE_HEIGHT, KEY, MAX_HP, MAX_PITCH, WEAPON } from "../../shared/src/constants";
+import { DT, EYE_HEIGHT, KEY, MAX_HP, MAX_PITCH, WEAPONS } from "../../shared/src/constants";
 import { aimDirection, rayMapHit, stepMove, type InputCmd, type MoveState } from "../../shared/src/physics";
 import type {
   DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, RosterEntry, RosterMsg,
@@ -34,6 +34,7 @@ let lookDX = 0, lookDY = 0;
 let seq = 0;
 const keysDown = new Set<string>();
 let mouseDown = false;
+let pendingWeapon = -1; // tecla 1/2 pulsada: se envía en el siguiente tick aunque se suelte enseguida
 
 /** Estado predicho: lo que creemos que dirá el servidor. */
 const pred: MoveState = { x: 0, y: 0, z: 0, vy: 0, onGround: true };
@@ -47,8 +48,9 @@ let stepTimer = 0;
 let wasOnGround = true;
 
 let me = {
-  alive: true, hp: MAX_HP, ammo: WEAPON.magazine as number, reloading: false, respawnIn: 0, ping: 0,
+  alive: true, hp: MAX_HP, ammo: WEAPONS[0].magazine, weapon: 0, switching: false, reloading: false, respawnIn: 0, ping: 0,
 };
+let prevFireHeld = false;
 let localFireCooldown = 0;
 let snapshotsReceived = 0;
 
@@ -133,7 +135,11 @@ function onSnapshot(s: SnapshotMsg) {
   snapshotsReceived++;
   const y = s.you;
   const wasAlive = me.alive;
-  me = { alive: y.alive, hp: y.hp, ammo: y.ammo, reloading: y.reloading, respawnIn: y.respawnIn, ping: y.ping };
+  me = {
+    alive: y.alive, hp: y.hp, ammo: y.ammo, weapon: y.weapon, switching: y.switching,
+    reloading: y.reloading, respawnIn: y.respawnIn, ping: y.ping,
+  };
+  world.weapon.setWeapon(y.weapon);
 
   // Reconciliación: partimos del estado oficial y repetimos los inputs que el
   // servidor aún no ha procesado. Si alguien hace trampa en su navegador,
@@ -278,6 +284,8 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     $("scoreboard").classList.remove("hidden");
   }
+  if (e.code === "Digit1" || e.code === "Numpad1") pendingWeapon = 0;
+  if (e.code === "Digit2" || e.code === "Numpad2") pendingWeapon = 1;
   keysDown.add(e.code);
 });
 window.addEventListener("keyup", (e) => {
@@ -299,6 +307,9 @@ function currentKeys(): number {
   if (k("Space")) keys |= KEY.JUMP;
   if (k("KeyR")) keys |= KEY.RELOAD;
   if (mouseDown) keys |= KEY.FIRE;
+  if (k("Digit1") || k("Numpad1") || pendingWeapon === 0) keys |= KEY.WEAPON1;
+  else if (k("Digit2") || k("Numpad2") || pendingWeapon === 1) keys |= KEY.WEAPON2;
+  pendingWeapon = -1;
   return keys;
 }
 
@@ -340,17 +351,30 @@ function footsteps(keys: number) {
 
 /** Efecto visual inmediato del disparo propio. El daño real lo decide el servidor. */
 function predictLocalFire(keys: number) {
+  // Cambio de arma inmediato en pantalla (el servidor lo confirma en el siguiente snapshot)
+  const want = (keys & KEY.WEAPON1) ? 0 : (keys & KEY.WEAPON2) ? 1 : me.weapon;
+  if (want !== me.weapon) {
+    me.weapon = want;
+    me.switching = true;
+    world.weapon.setWeapon(want);
+    sfx.switchWeapon();
+    localFireCooldown = 12;
+  }
+  const w = WEAPONS[me.weapon];
   if (localFireCooldown > 0) localFireCooldown--;
-  if ((keys & KEY.RELOAD) && me.ammo < WEAPON.magazine && !me.reloading) sfx.reload();
-  if (!(keys & KEY.FIRE) || localFireCooldown > 0 || me.reloading || me.ammo <= 0) return;
-  localFireCooldown = WEAPON.fireIntervalTicks;
+  const held = (keys & KEY.FIRE) !== 0;
+  const trigger = w.semiAuto ? held && !prevFireHeld : held;
+  prevFireHeld = held;
+  if ((keys & KEY.RELOAD) && me.ammo < w.magazine && !me.reloading) sfx.reload();
+  if (!trigger || localFireCooldown > 0 || me.reloading || me.switching || me.ammo <= 0) return;
+  localFireCooldown = w.fireIntervalTicks;
   const ox = pred.x, oy = pred.y + EYE_HEIGHT, oz = pred.z;
   const [dx, dy, dz] = aimDirection(yaw, pitch);
-  const hit = rayMapHit(ox, oy, oz, dx, dy, dz, WEAPON.range);
+  const hit = rayMapHit(ox, oy, oz, dx, dy, dz, w.range);
   const point = new THREE.Vector3(ox + dx * hit.t, oy + dy * hit.t, oz + dz * hit.t);
-  const isWall = hit.t < WEAPON.range - 0.01;
+  const isWall = hit.t < w.range - 0.01;
   world.localShot(point, new THREE.Vector3(...hit.normal), isWall ? hit.kind : null, pred.y);
-  sfx.shoot();
+  if (me.weapon === 1) sfx.pistol(); else sfx.shoot();
 }
 
 // ---------- Render ----------
@@ -397,8 +421,12 @@ function updateHud() {
   const fill = $("hp-fill");
   fill.style.width = `${(me.hp / MAX_HP) * 100}%`;
   fill.classList.toggle("low", me.hp <= 30);
+  const w = WEAPONS[me.weapon];
   $("ammo").textContent = String(me.ammo);
-  $("ammo-max").textContent = `/ ${WEAPON.magazine}`;
+  $("ammo-max").textContent = `/ ${w.magazine}`;
+  $("weapon-name").textContent = w.name.toUpperCase();
+  $("slot-1").classList.toggle("active", me.weapon === 0);
+  $("slot-2").classList.toggle("active", me.weapon === 1);
   $("reload").classList.toggle("hidden", !me.reloading);
   $("ping").textContent = `${me.ping} ms`;
 

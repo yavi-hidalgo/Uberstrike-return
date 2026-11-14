@@ -26,7 +26,7 @@ Se elige en el menú:
 | **Media** | Sombras de la luna, brillo (bloom), viñeta, luces de las farolas | La mayoría de PCs |
 | **Alta** | Sombras suaves de alta resolución, antialiasing SMAA y luces en los botiquines | Tarjetas tipo GTX 1660 o superiores |
 
-Todas las texturas (hormigón, roca, madera, metal, nieve, losas) se generan por código al cargar el juego, con color, relieve y rugosidad.
+Las texturas son escaneos fotográficos de Poly Haven (CC0) con color, relieve y oclusión/rugosidad/metal; los objetos (barriles, generador, armarios eléctricos, faroles, rocas, abetos...) son modelos 3D reales optimizados. Los recursos están en `client/public/assets/` y los créditos en [CREDITS.md](CREDITS.md).
 
 ## Requisitos
 
@@ -63,6 +63,7 @@ Para jugar con alguien de tu misma red Wi-Fi, comparte la dirección "Network" q
 | Clic izquierdo | disparar |
 | `Espacio` | saltar |
 | `R` | recargar |
+| `1` / `2` | rifle / pistola |
 | `Tab` | ver el marcador |
 | `Esc` | soltar el ratón |
 

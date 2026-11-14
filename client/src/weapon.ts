@@ -213,10 +213,12 @@ export class ShotEffects {
   }
 }
 
-/** Arma en primera persona: balanceo al caminar, inercia, retroceso, recarga y fogonazo. */
+/** Arma en primera persona: balanceo al caminar, inercia, retroceso, recarga, cambio de arma y fogonazo. */
 export class ViewWeapon {
   readonly root = new THREE.Group(); // colgado de la cámara
-  private model: ReturnType<typeof buildKestrel>;
+  private rifle: ReturnType<typeof buildKestrel>;
+  private pistol: { group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D } | null = null;
+  private current = 0;
   private flash: THREE.Group;
   private flashLight: THREE.PointLight;
   private flashTime = 0;
@@ -224,16 +226,18 @@ export class ViewWeapon {
   private bobT = 0;
   private sway = new THREE.Vector2();
   private reloadT = 0;
-  private readonly basePos = new THREE.Vector3(0.15, -0.165, -0.36);
+  private switchT = 0;
+  private readonly rifleBase = new THREE.Vector3(0.15, -0.165, -0.36);
+  private readonly pistolBase = new THREE.Vector3(0.13, -0.15, -0.33);
 
   constructor() {
-    this.model = buildKestrel();
-    this.model.group.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
-    this.model.group.scale.setScalar(0.82);
-    this.root.add(this.model.group);
-    this.root.position.copy(this.basePos);
+    this.rifle = buildKestrel();
+    this.rifle.group.scale.setScalar(0.82);
+    this.rifle.group.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
+    this.root.add(this.rifle.group);
+    this.root.position.copy(this.rifleBase);
 
-    // Fogonazo: dos planos cruzados con brillo aditivo
+    // Fogonazo: tres planos cruzados con brillo aditivo
     this.flash = new THREE.Group();
     const mat = new THREE.MeshBasicMaterial({ map: flashSprite(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     const p1 = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), mat);
@@ -244,25 +248,63 @@ export class ViewWeapon {
     p3.rotation.set(Math.PI / 2, 0, Math.PI / 2);
     this.flash.add(p1, p2, p3);
     this.flash.visible = false;
-    this.model.muzzle.add(this.flash);
+    this.rifle.muzzle.add(this.flash);
     this.flashLight = new THREE.PointLight(0xffb05a, 0, 6, 2);
-    this.model.muzzle.add(this.flashLight);
+    this.rifle.muzzle.add(this.flashLight);
   }
 
-  muzzleWorld(): THREE.Vector3 { return this.model.muzzle.getWorldPosition(new THREE.Vector3()); }
-  ejectorWorld(): THREE.Vector3 { return this.model.ejector.getWorldPosition(new THREE.Vector3()); }
+  /** Pistola (modelo de Poly Haven). El cañón del modelo apunta a +X: lo giramos hacia -Z. */
+  setPistolModel(model: THREE.Object3D) {
+    const group = new THREE.Group();
+    model.rotation.y = Math.PI / 2;
+    model.scale.setScalar(0.95);
+    group.add(model);
+    const box = new THREE.Box3().setFromObject(group);
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, box.min.y + (box.max.y - box.min.y) * 0.78, box.min.z - 0.01);
+    const ejector = new THREE.Object3D();
+    ejector.position.set(0.012, box.max.y - 0.02, box.min.z + 0.12);
+    group.add(muzzle, ejector);
+    group.visible = false;
+    this.root.add(group);
+    this.pistol = { group, muzzle, ejector };
+    this.applyWeapon();
+  }
+
+  private active() { return this.current === 1 && this.pistol ? this.pistol : this.rifle; }
+
+  private applyWeapon() {
+    const usePistol = this.current === 1 && !!this.pistol;
+    this.rifle.group.visible = !usePistol;
+    if (this.pistol) this.pistol.group.visible = usePistol;
+    const muzzle = this.active().muzzle;
+    muzzle.add(this.flash);
+    muzzle.add(this.flashLight);
+    this.flash.scale.setScalar(usePistol ? 0.7 : 1);
+  }
+
+  setWeapon(index: number) {
+    if (index === this.current) return;
+    this.current = index;
+    this.switchT = 1; // el arma sube desde abajo
+    this.applyWeapon();
+  }
+
+  muzzleWorld(): THREE.Vector3 { return this.active().muzzle.getWorldPosition(new THREE.Vector3()); }
+  ejectorWorld(): THREE.Vector3 { return this.active().ejector.getWorldPosition(new THREE.Vector3()); }
 
   fire() {
     this.recoil = 1;
     this.flashTime = 0.05;
     this.flash.visible = true;
     this.flash.rotation.z = Math.random() * Math.PI;
-    this.flash.scale.setScalar(0.8 + Math.random() * 0.5);
-    this.flashLight.intensity = 25;
+    this.flash.scale.multiplyScalar(0.8 + Math.random() * 0.5);
+    this.flashLight.intensity = this.current === 1 ? 18 : 25;
   }
 
   update(dt: number, opts: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; visible: boolean }) {
     this.root.visible = opts.visible;
+    const base = this.current === 1 && this.pistol ? this.pistolBase : this.rifleBase;
     // Balanceo al caminar
     const moving = opts.onGround ? Math.min(1, opts.speed / 7) : 0;
     this.bobT += dt * (6 + moving * 5) * (moving > 0.05 ? 1 : 0.2);
@@ -274,18 +316,25 @@ export class ViewWeapon {
     this.sway.clampScalar(-0.03, 0.03);
     // Recarga: el arma baja y gira
     this.reloadT += ((opts.reloading ? 1 : 0) - this.reloadT) * Math.min(1, dt * 8);
-    // Retroceso
+    // Cambio de arma
+    this.switchT = Math.max(0, this.switchT - dt * 2.8);
+    // Retroceso (la pistola sube más)
     this.recoil = Math.max(0, this.recoil - dt * 9);
     const k = this.recoil;
+    const kick = this.current === 1 ? 0.14 : 0.06;
     this.root.position.set(
-      this.basePos.x + bobX + this.sway.x,
-      this.basePos.y - bobY + this.sway.y - this.reloadT * 0.12 + (opts.onGround ? 0 : -0.015),
-      this.basePos.z + k * 0.045,
+      base.x + bobX + this.sway.x,
+      base.y - bobY + this.sway.y - this.reloadT * 0.12 - this.switchT * 0.25 + (opts.onGround ? 0 : -0.015),
+      base.z + k * 0.045,
     );
-    this.root.rotation.set(k * 0.06 + this.reloadT * -0.6, this.sway.x * 1.5, this.reloadT * 0.5 + bobX * 2);
+    this.root.rotation.set(k * kick + this.reloadT * -0.6 - this.switchT * 0.8, this.sway.x * 1.5, this.reloadT * 0.5 + bobX * 2);
 
     this.flashTime -= dt;
-    if (this.flashTime <= 0) { this.flash.visible = false; this.flashLight.intensity = 0; }
-    this.model.reticle.visible = this.reloadT < 0.3;
+    if (this.flashTime <= 0) {
+      this.flash.visible = false;
+      this.flashLight.intensity = 0;
+      this.flash.scale.setScalar(this.current === 1 ? 0.7 : 1);
+    }
+    this.rifle.reticle.visible = this.reloadT < 0.3;
   }
 }
