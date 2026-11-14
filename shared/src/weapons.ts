@@ -10,6 +10,8 @@ export interface WeaponModel {
   category: Category;
   futuristic: boolean;
   source: string;
+  /** Pack de brazos animados en primera persona (los demás jugadores ven `thirdPerson`). */
+  arms?: { thirdPerson: string; back: number; up: number; arm: number; muzzle: [number, number, number] };
 }
 
 export interface WeaponStats {
@@ -43,7 +45,18 @@ const BUILT_IN: WeaponModel[] = [
   { id: "service_pistol", name: "Pistola de servicio", author: "Poly Haven", category: "pistol", futuristic: false, source: "https://polyhaven.com/a/service_pistol" },
 ];
 
+/** Armas con brazos animados (packs de Cransh, CC BY). */
+const WITH_ARMS: WeaponModel[] = [
+  { id: "ca37ea9148", name: "Subfusil táctico (con brazos)", author: "Cransh", category: "smg", futuristic: false, source: "https://sketchfab.com/3d-models/none-ca37ea9148dc4fcc9cc632175d311b23",
+    arms: { thirdPerson: "6b2015ec3b", back: -0.2, up: 0.02, arm: 0.6, muzzle: [0.02, -0.1, -0.75] } },
+  { id: "e68ef617fe", name: "Escopeta de corredera (con brazos)", author: "Cransh", category: "shotgun", futuristic: false, source: "https://sketchfab.com/3d-models/none-e68ef617fe8a48cca8610d016ffd5881",
+    arms: { thirdPerson: "6db0ad4764", back: 0.45, up: 0.3, arm: 0.6, muzzle: [0.0, -0.12, -1.0] } },
+  { id: "c15ae8393d", name: "Rifle de cerrojo (con brazos)", author: "Cransh", category: "sniper", futuristic: false, source: "https://sketchfab.com/3d-models/none-c15ae8393d824f5b929e3f69691cdd31",
+    arms: { thirdPerson: "e88c90c8e2", back: 0.05, up: 0.28, arm: 0.6, muzzle: [0.0, -0.08, -1.1] } },
+];
+
 export const WEAPON_MODELS: WeaponModel[] = [
+  ...WITH_ARMS,
   ...BUILT_IN,
   { id: "9084c3bae8", name: "AK-74M Assault Rifle", author: "FJH", category: "rifle", futuristic: false, source: "https://sketchfab.com/3d-models/none-9084c3bae8224d338103997bc3101480" },
   { id: "f32fe06215", name: "AR-181", author: "Frostoise", category: "rifle", futuristic: false, source: "https://sketchfab.com/3d-models/none-f32fe06215434fb2a159d29343079a1e" },

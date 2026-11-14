@@ -72,3 +72,13 @@ Modelos descargados de sketchfab.com con licencia [CC BY 4.0](https://creativeco
 | Fábrica abandonada | Abandoned factory | Pasha | [sketchfab](https://sketchfab.com/3d-models/none-c08537c06acd46bba24ad8251bcdf941) |
 
 El escenario se modificó: escalado a metros reales, texturas comprimidas a WebP y colisiones generadas automáticamente a partir de su geometría.
+
+## Brazos animados en primera persona (CC Attribution 4.0)
+
+| Pack | Autor | Enlace |
+|---|---|---|
+| SMG FPS Animations | Cransh | [sketchfab](https://sketchfab.com/3d-models/none-ca37ea9148dc4fcc9cc632175d311b23) |
+| FPS Arms remington (shotgun) | Cransh | [sketchfab](https://sketchfab.com/3d-models/none-e68ef617fe8a48cca8610d016ffd5881) |
+| FPS animations sniper rifle | Cransh | [sketchfab](https://sketchfab.com/3d-models/none-c15ae8393d824f5b929e3f69691cdd31) |
+
+Se modificaron: texturas comprimidas a WebP y encuadre calculado a partir del esqueleto.

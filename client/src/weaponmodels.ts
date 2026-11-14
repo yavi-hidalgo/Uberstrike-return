@@ -5,6 +5,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { buildKestrel } from "./weapon";
 import { pistolModel } from "./props";
+import { weaponModel } from "../../shared/src/weapons";
 
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
@@ -40,6 +41,9 @@ async function loadTemplate(id: string): Promise<THREE.Object3D | null> {
     p.rotation.y = Math.PI / 2; // el modelo de Poly Haven apunta a +X
     return center(p);
   }
+  // Las armas con brazos se ven en manos de los demás con un modelo suelto equivalente
+  const arms = weaponModel(id)?.arms;
+  if (arms) return loadTemplate(arms.thirdPerson);
   try {
     const g = await loader.loadAsync(`${import.meta.env.BASE_URL}assets/weapons/${id}.glb`);
     return center(g.scene);

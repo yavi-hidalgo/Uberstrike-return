@@ -14,6 +14,8 @@ import { ShotEffects, ViewWeapon } from "./weapon";
 import { Avatar, loadAvatarModel } from "./avatars";
 import { buildProps, hasModel, loadPropModels } from "./props";
 import { weaponAnchors, weaponObject } from "./weaponmodels";
+import { ArmsViewModel } from "./fparms";
+import { weaponModel } from "../../shared/src/weapons";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
@@ -182,6 +184,11 @@ export class World {
   /** Carga y coloca en primera persona el arma principal y la pistola elegidas. */
   async equip(loadout: [string, string]) {
     await Promise.all(loadout.map(async (id, slot) => {
+      const def = weaponModel(id);
+      if (def?.arms) {
+        const arms = await ArmsViewModel.load(def);
+        if (arms) { this.weapon.setSlotArms(slot, arms); return; }
+      }
       const o = await weaponObject(id);
       if (o) this.weapon.setSlotModel(slot, o, weaponAnchors(o));
     }));
@@ -327,7 +334,7 @@ export class World {
     }
   }
 
-  render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean; aiming: boolean }) {
+  render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean; aiming: boolean; reloadSeconds?: number }) {
     this.time += dt;
     this.env.update(dt, this.time, this.camera.position);
     if (this.map.dome) this.map.dome.rotation.y += dt * 0.02;

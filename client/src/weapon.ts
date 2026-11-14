@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { bulletHoleSprite, flashSprite, softSprite } from "./textures";
+import type { ArmsViewModel } from "./fparms";
 
 const gunmetal = () => new THREE.MeshStandardMaterial({ color: 0x2a2e33, metalness: 0.85, roughness: 0.36 });
 const polymerTan = () => new THREE.MeshStandardMaterial({ color: 0x8a7a5e, metalness: 0, roughness: 0.72 });
@@ -216,7 +217,8 @@ export class ShotEffects {
 /** Arma en primera persona: balanceo al caminar, inercia, retroceso, recarga, cambio de arma y fogonazo. */
 export class ViewWeapon {
   readonly root = new THREE.Group(); // colgado de la cámara
-  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number } | null)[] = [null, null];
+  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number; arms?: ArmsViewModel } | null)[] = [null, null];
+  private wasReloading = false;
   private current = 0;
   private flash: THREE.Group;
   private flashLight: THREE.PointLight;
@@ -268,6 +270,18 @@ export class ViewWeapon {
     if (slot === this.current) this.attachFlash();
   }
 
+  /** Brazos animados: el pack ya trae su encuadre, balanceo y animaciones. */
+  setSlotArms(slot: number, arms: ArmsViewModel) {
+    const old = this.slots[slot];
+    if (old) this.root.remove(old.group);
+    const group = new THREE.Group();
+    group.add(arms.group);
+    group.visible = slot === this.current;
+    this.root.add(group);
+    this.slots[slot] = { group, muzzle: arms.muzzle, ejector: arms.ejector, base: new THREE.Vector3(0, 0, 0), kick: 0.015, arms };
+    if (slot === this.current) this.attachFlash();
+  }
+
   private active() { return this.slots[this.current] ?? this.slots[0] ?? this.slots[1]; }
 
   private attachFlash() {
@@ -283,6 +297,7 @@ export class ViewWeapon {
     this.switchT = 1; // el arma sube desde abajo
     this.slots.forEach((s, i) => { if (s) s.group.visible = i === index; });
     this.attachFlash();
+    this.slots[index]?.arms?.draw();
   }
 
   muzzleWorld(): THREE.Vector3 {
@@ -295,6 +310,7 @@ export class ViewWeapon {
   }
 
   fire(pellets = 1) {
+    this.active()?.arms?.fire();
     this.recoil = 1;
     this.flashTime = 0.05;
     this.flash.visible = true;
@@ -303,20 +319,27 @@ export class ViewWeapon {
     this.flashLight.intensity = pellets > 1 ? 35 : 25;
   }
 
-  update(dt: number, opts: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; visible: boolean; aiming: boolean }) {
+  update(dt: number, opts: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; visible: boolean; aiming: boolean; reloadSeconds?: number }) {
     const a = this.active();
+    if (a?.arms) {
+      if (opts.reloading && !this.wasReloading) a.arms.reload(opts.reloadSeconds ?? 1.5);
+      a.arms.update(dt, opts.speed, opts.onGround);
+    }
+    this.wasReloading = opts.reloading;
     // Con la mira telescópica el arma se aparta (se ve la mira a pantalla completa)
     this.aimT += ((opts.aiming ? 1 : 0) - this.aimT) * Math.min(1, dt * 14);
     this.root.visible = opts.visible && this.aimT < 0.9;
     if (!a) return;
     const moving = opts.onGround ? Math.min(1, opts.speed / 7) : 0;
     this.bobT += dt * (6 + moving * 5) * (moving > 0.05 ? 1 : 0.2);
-    const bobX = Math.sin(this.bobT) * 0.012 * moving;
-    const bobY = Math.abs(Math.cos(this.bobT)) * 0.012 * moving;
+    const bobAmp = a.arms ? 0.004 : 0.012;
+    const bobX = Math.sin(this.bobT) * bobAmp * moving;
+    const bobY = Math.abs(Math.cos(this.bobT)) * bobAmp * moving;
     this.sway.x += (-opts.lookDX * 0.02 - this.sway.x) * Math.min(1, dt * 10);
     this.sway.y += (opts.lookDY * 0.02 - this.sway.y) * Math.min(1, dt * 10);
     this.sway.clampScalar(-0.03, 0.03);
-    this.reloadT += ((opts.reloading ? 1 : 0) - this.reloadT) * Math.min(1, dt * 8);
+    const animated = !!a.arms;
+    this.reloadT += ((opts.reloading && !animated ? 1 : 0) - this.reloadT) * Math.min(1, dt * 8);
     this.switchT = Math.max(0, this.switchT - dt * 2.8);
     this.recoil = Math.max(0, this.recoil - dt * 9);
     const k = this.recoil;

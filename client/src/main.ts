@@ -592,6 +592,7 @@ function frame(now: number) {
     speed: horizSpeed, onGround: pred.onGround, lookDX, lookDY,
     reloading: me.reloading, alive: !!room && me.alive,
     aiming: aiming && me.weapon === 0 && slotStats[0].zoomFov > 0 && !me.reloading,
+    reloadSeconds: slotStats[me.weapon].reloadTicks * DT,
   });
   lookDX = lookDY = 0;
   requestAnimationFrame(frame);
