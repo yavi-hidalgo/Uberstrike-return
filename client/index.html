@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arena Rush</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="crosshair"><span></span><span></span><span></span><span></span></div>
+      <div id="hitmarker"></div>
+      <div id="damage-flash"></div>
+      <div id="killfeed"></div>
+      <div id="bottom-left">
+        <div class="label">VIDA</div>
+        <div id="hp-value">100</div>
+        <div id="hp-bar"><div id="hp-fill"></div></div>
+      </div>
+      <div id="bottom-right">
+        <div class="label" id="weapon-name">RIFLE</div>
+        <div id="ammo">30</div>
+        <div id="reload" class="hidden">RECARGANDO…</div>
+      </div>
+      <div id="top-left">
+        <div id="score-line"></div>
+        <div id="ping"></div>
+      </div>
+      <div id="death" class="hidden">
+        <div id="death-title">ELIMINADO</div>
+        <div id="death-sub"></div>
+      </div>
+      <div id="scoreboard" class="hidden">
+        <h2 id="scoreboard-title">Marcador</h2>
+        <table>
+          <thead><tr><th>Jugador</th><th>Bajas</th><th>Muertes</th></tr></thead>
+          <tbody id="scoreboard-body"></tbody>
+        </table>
+        <div id="scoreboard-hint">Mantén TAB para ver el marcador</div>
+      </div>
+      <div id="click-to-play" class="hidden">Haz clic para jugar</div>
+    </div>
+
+    <div id="menu">
+      <div class="card">
+        <h1>ARENA<span>RUSH</span></h1>
+        <p class="tagline">Shooter arena multijugador</p>
+        <form id="join-form">
+          <label for="name">Tu nombre</label>
+          <input id="name" maxlength="16" autocomplete="nickname" placeholder="Jugador" required />
+          <button type="submit" id="join-btn">Jugar</button>
+          <div id="menu-error" role="alert"></div>
+        </form>
+        <div class="controls">
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse</div>
+          <div><kbd>Espacio</kbd> saltar</div>
+          <div><kbd>Clic</kbd> disparar · <kbd>R</kbd> recargar</div>
+          <div><kbd>Tab</kbd> marcador · <kbd>Esc</kbd> soltar ratón</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
