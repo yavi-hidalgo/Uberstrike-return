@@ -37,7 +37,7 @@ async function join(name: string, roomId?: string, extra: Record<string, unknown
   const client = new Client(`ws://localhost:${PORT}`);
   const room = roomId
     ? await client.joinById(roomId, { name, ...extra })
-    : await client.create("arena", { name, ...extra });
+    : await client.create("arena", { name, map: "observatory", ...extra });
   const bot: Bot = { room, id: 0, last: null, events: [] };
   room.onMessage("welcome", (m) => (bot.id = m.id));
   room.onMessage("snap", (m) => (bot.last = m));
@@ -235,4 +235,27 @@ test("escopeta: un disparo lanza varios perdigones y suma su daño", async () =>
   assert.equal(pa.ammo[0], sg.magazine - 1, "un disparo gasta un solo cartucho");
   await a.room.leave();
   await b.room.leave();
+});
+
+test("mapa fábrica: se aparece en sitio libre, se camina y los muros tapan la vista", async () => {
+  const client = new Client(`ws://localhost:${PORT}`);
+  const room = await client.create("arena", { name: "Explorador", map: "factory" });
+  room.onMessage("*", () => {});
+  let welcome: any = null;
+  room.onMessage("welcome", (m) => (welcome = m));
+  await sleep(300);
+  assert.equal(welcome?.map, "factory");
+  const r: any = matchMaker.getLocalRoomById(room.roomId);
+  const p: any = r.players.get(room.sessionId);
+  const { MAPS } = await import("../../shared/src/maps");
+  const boxes = MAPS.factory.boxes;
+  const inside = boxes.some((b: any) =>
+    p.move.x + 0.4 > b.min[0] && p.move.x - 0.4 < b.max[0] && p.move.z + 0.4 > b.min[2] && p.move.z - 0.4 < b.max[2] &&
+    p.move.y + 1.8 > b.min[1] && p.move.y < b.max[1]);
+  assert.equal(inside, false, "no debe aparecer dentro de una pared");
+  const start = { x: p.move.x, z: p.move.z };
+  for (let i = 1; i <= 15; i++) { room.send("input", { seq: i, keys: KEY.FORWARD, yaw: p.yaw, pitch: 0 }); await sleep(DT * 1000); }
+  await sleep(200);
+  assert.ok(Math.hypot(p.move.x - start.x, p.move.z - start.z) > 1, "debe poder caminar desde el punto de aparición");
+  await room.leave();
 });

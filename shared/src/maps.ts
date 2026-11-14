@@ -1,0 +1,68 @@
+// Registro de mapas. Cada sala del servidor usa uno; el cliente carga el que le indica el servidor.
+import {
+  MAP_BOXES as OBS_BOXES, PICKUPS as OBS_PICKUPS, SPAWN_POINTS as OBS_SPAWNS, ARENA_HALF,
+  type Box, type Pickup, type SpawnPoint,
+} from "./map";
+import factoryData from "./maps/factory.json";
+
+export interface MapDef {
+  id: string;
+  name: string;
+  boxes: Box[];
+  spawns: SpawnPoint[];
+  pickups: Pickup[];
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  /** Escenario modelado (glTF). Si no hay, el cliente construye el mapa por código. */
+  model?: { file: string; scale: number; groundOffset: number; credit: string; source: string };
+}
+
+/** Paredes invisibles alrededor de un rectángulo, para que nadie salga del mapa. */
+function perimeter(b: MapDef["bounds"], height = 14): Box[] {
+  const t = 1;
+  const mk = (x0: number, z0: number, x1: number, z1: number): Box => ({ min: [x0, 0, z0], max: [x1, height, z1], kind: "invisible", hidden: true });
+  return [
+    mk(b.minX - t, b.minZ - t, b.maxX + t, b.minZ),
+    mk(b.minX - t, b.maxZ, b.maxX + t, b.maxZ + t),
+    mk(b.minX - t, b.minZ, b.minX, b.maxZ),
+    mk(b.maxX, b.minZ, b.maxX + t, b.maxZ),
+  ];
+}
+
+const observatory: MapDef = {
+  id: "observatory",
+  name: "Observatorio Andino",
+  boxes: OBS_BOXES,
+  spawns: OBS_SPAWNS,
+  pickups: OBS_PICKUPS,
+  bounds: { minX: -ARENA_HALF, maxX: ARENA_HALF, minZ: -ARENA_HALF, maxZ: ARENA_HALF },
+};
+
+const fb = factoryData.bounds;
+const factoryBounds = { minX: fb[0][0], maxX: fb[1][0], minZ: fb[0][1], maxZ: fb[1][1] };
+const fcx = (factoryBounds.minX + factoryBounds.maxX) / 2, fcz = (factoryBounds.minZ + factoryBounds.maxZ) / 2;
+
+const factory: MapDef = {
+  id: "factory",
+  name: "Fábrica abandonada",
+  boxes: [
+    ...factoryData.boxes.map(([a, b, c, d, e, f]): Box => ({ min: [a, b, c], max: [d, e, f], kind: "concrete", hidden: true })),
+    ...perimeter(factoryBounds),
+  ],
+  // Cada punto de aparición mira hacia el centro del mapa
+  spawns: factoryData.spawns.map(([x, z]) => ({ x, z, yaw: Math.atan2(x - fcx, z - fcz) })),
+  pickups: factoryData.pickups.map(([x, z], i) => ({
+    id: i + 1, type: "health" as const, x, y: 0, z, amount: i === 0 ? 50 : 30, respawnMs: i === 0 ? 20000 : 15000,
+  })),
+  bounds: factoryBounds,
+  model: {
+    file: "factory.glb", scale: factoryData.scale, groundOffset: factoryData.groundOffset,
+    credit: "Abandoned factory de Pasha", source: "https://sketchfab.com/3d-models/none-c08537c06acd46bba24ad8251bcdf941",
+  },
+};
+
+export const MAPS: Record<string, MapDef> = { factory, observatory };
+export const DEFAULT_MAP = "factory";
+
+export function mapById(id: unknown): MapDef {
+  return (typeof id === "string" && MAPS[id]) || MAPS[DEFAULT_MAP];
+}

@@ -64,3 +64,11 @@ Modelos descargados de sketchfab.com con licencia [CC BY 4.0](https://creativeco
 | Sci-FI Sniper Rifle | Matija Švaco | [sketchfab](https://sketchfab.com/3d-models/none-2d1bef3aa9ae47c5aee26cc3f032ab31) |
 | Sniper Railgun Mk-3 | ReiSakisaka | [sketchfab](https://sketchfab.com/3d-models/none-dafa37e0394b44399929aced2dbcd264) |
 | Sniper Rifle Futuristic | trolosqlfod | [sketchfab](https://sketchfab.com/3d-models/none-b00986dc8fe649319d3e934a288c3bb9) |
+
+## Mapas de Sketchfab (CC Attribution 4.0)
+
+| Mapa | Modelo | Autor | Enlace |
+|---|---|---|---|
+| Fábrica abandonada | Abandoned factory | Pasha | [sketchfab](https://sketchfab.com/3d-models/none-c08537c06acd46bba24ad8251bcdf941) |
+
+El escenario se modificó: escalado a metros reales, texturas comprimidas a WebP y colisiones generadas automáticamente a partir de su geometría.

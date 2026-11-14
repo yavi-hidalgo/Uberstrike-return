@@ -1,0 +1,38 @@
+<!doctype html><html><body style="margin:0"><canvas id="c" width="1200" height="1200"></canvas>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+const q = new URLSearchParams(location.search);
+const view = q.get("view");
+const S = 30; // escala tentativa: 1 unidad = 30 m
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById("c") });
+r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8fa6c0);
+const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(30, 60, 20); scene.add(sun);
+const L = new GLTFLoader(); L.setMeshoptDecoder(MeshoptDecoder);
+const g = await L.loadAsync(`/tmp-maps/c08537c06a.glb`);
+g.scene.scale.setScalar(S); scene.add(g.scene);
+const box = new THREE.Box3().setFromObject(g.scene);
+const grid = new THREE.GridHelper(80, 40, 0xff0000, 0xffff00); grid.position.y = box.max.y + 0.1; 
+let cam;
+if (view === "top") {
+  scene.add(grid);
+  cam = new THREE.OrthographicCamera(-25, 25, 25, -25, 0.1, 500); cam.position.set(-3, 200, 0); cam.up.set(0, 0, -1); cam.lookAt(-3, 0, 0);
+} else {
+  const [x, z, yaw] = view.split(",").map(Number);
+  cam = new THREE.PerspectiveCamera(70, 1, 0.05, 500);
+  // altura de ojos 1.6 m sobre el suelo más cercano
+  const ray = new THREE.Raycaster(new THREE.Vector3(x, 100, z), new THREE.Vector3(0, -1, 0));
+  const hit = ray.intersectObject(g.scene, true)[0];
+  const gy = hit ? hit.point.y : 0;
+  cam.position.set(x, gy + 1.6, z); cam.rotation.order = "YXZ"; cam.rotation.set(0, yaw, 0);
+  // poste de referencia de 2 m delante
+  const pole = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2, 0.1), new THREE.MeshBasicMaterial({ color: 0xff00ff }));
+  pole.position.set(x - Math.sin(yaw) * 4, gy + 1, z - Math.cos(yaw) * 4); scene.add(pole);
+  window.__ground = gy;
+}
+r.render(scene, cam); window.__done = true; window.__box = [box.min.toArray(), box.max.toArray()];
+</script></body></html>

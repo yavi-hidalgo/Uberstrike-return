@@ -14,6 +14,7 @@ import type {
   ShotMsg, SnapshotMsg, WelcomeMsg,
 } from "../../shared/src/protocol";
 import { World, loadQuality, type Quality } from "./world";
+import { DEFAULT_MAP, mapById } from "../../shared/src/maps";
 import { sfx } from "./audio";
 
 // Dirección del servidor de juego. En producción se define con VITE_SERVER_URL.
@@ -27,7 +28,10 @@ const MOUSE_SENS = 0.0022;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("game");
 const quality = loadQuality();
-const world = new World(canvas, quality);
+// Mapa: el de la URL (?map=...) o el predeterminado. Si el servidor usa otro, se recarga con ese.
+const mapDef = mapById(new URLSearchParams(location.search).get("map") ?? DEFAULT_MAP);
+const boxes = mapDef.boxes;
+const world = new World(canvas, quality, mapDef);
 const worldReady = world.load();
 
 // ---------- Estado local ----------
@@ -79,6 +83,7 @@ const joinBtn = $<HTMLButtonElement>("join-btn");
 const menuError = $("menu-error");
 try { nameInput.value = localStorage.getItem("arena.name") ?? ""; } catch { /* sin storage */ }
 qualitySel.value = quality;
+$("map-name").textContent = `${mapDef.name} · noche`;
 qualitySel.addEventListener("change", () => {
   try { localStorage.setItem("arena.quality", qualitySel.value as Quality); } catch { /* sin storage */ }
   location.reload();
@@ -158,9 +163,17 @@ form.addEventListener("submit", async (e) => {
 
 async function connect(name: string) {
   const client = new Client(SERVER_URL);
-  room = await client.joinOrCreate("arena", { name, primary: loadout[0], secondary: loadout[1] });
+  room = await client.joinOrCreate("arena", { name, primary: loadout[0], secondary: loadout[1], map: mapDef.id });
 
-  room.onMessage("welcome", (m: WelcomeMsg) => { myId = m.id; });
+  room.onMessage("welcome", (m: WelcomeMsg) => {
+    myId = m.id;
+    if (m.map && m.map !== mapDef.id) {
+      // La sala usa otro mapa: recargamos con ese
+      const url = new URL(location.href);
+      url.searchParams.set("map", m.map);
+      location.href = url.toString();
+    }
+  });
   room.onMessage("ping", (m) => room?.send("pong", m));
   room.onMessage("snap", onSnapshot);
   room.onMessage("roster", onRoster);
@@ -202,7 +215,7 @@ function onSnapshot(s: SnapshotMsg) {
   Object.assign(pred, { x: y.x, y: y.y, z: y.z, vy: y.vy, onGround: y.g });
   pending = pending.filter((c) => c.seq > y.seq);
   if (y.alive) {
-    for (const c of pending) stepMove(pred, c.keys, c.yaw, DT);
+    for (const c of pending) stepMove(pred, c.keys, c.yaw, DT, boxes);
   } else {
     pending = [];
   }
@@ -241,7 +254,7 @@ function onRemoteShot(s: ShotMsg) {
   const dir = to.clone().sub(from);
   const dist = dir.length();
   dir.normalize();
-  const hit = rayMapHit(from.x, from.y, from.z, dir.x, dir.y, dir.z, dist + 0.05);
+  const hit = rayMapHit(from.x, from.y, from.z, dir.x, dir.y, dir.z, dist + 0.05, boxes);
   const hitWall = hit.t < dist + 0.04 && hit.t > dist - 0.1;
   world.remoteShot(from, to, hitWall ? new THREE.Vector3(...hit.normal) : null, hitWall ? hit.kind : null);
   const d = Math.hypot(s.from[0] - pred.x, s.from[2] - pred.z);
@@ -381,7 +394,7 @@ function fixedTick() {
   if (me.alive) {
     pending.push(cmd);
     const bx = pred.x, bz = pred.z;
-    stepMove(pred, keys, yaw, DT);
+    stepMove(pred, keys, yaw, DT, boxes);
     horizSpeed = Math.hypot(pred.x - bx, pred.z - bz) / DT;
     predictLocalFire(keys);
     footsteps(keys);
@@ -431,7 +444,7 @@ function predictLocalFire(keys: number) {
   for (let k = 0; k < w.pellets; k++) {
     const jy = (Math.random() * 2 - 1) * w.spread, jp = (Math.random() * 2 - 1) * w.spread;
     const [dx, dy, dz] = aimDirection(yaw + jy, pitch + jp);
-    const hit = rayMapHit(ox, oy, oz, dx, dy, dz, w.range);
+    const hit = rayMapHit(ox, oy, oz, dx, dy, dz, w.range, boxes);
     const isWall = hit.t < w.range - 0.01;
     hits.push({ point: new THREE.Vector3(ox + dx * hit.t, oy + dy * hit.t, oz + dz * hit.t), normal: new THREE.Vector3(...hit.normal), kind: isWall ? hit.kind : null });
   }
@@ -564,9 +577,13 @@ function frame(now: number) {
     const view = prevTickPos.clone().lerp(currTickPos, alpha).add(correction);
     world.setView(view.x, view.y, view.z, yaw, pitch);
   } else {
-    // Vista del menú: la cámara gira lentamente alrededor del observatorio.
-    const a = now / 16000;
-    world.setView(Math.sin(a) * 22, 4.5, Math.cos(a) * 22, a, -0.12);
+    // Vista del menú: la cámara gira lentamente alrededor del mapa, por encima de los tejados.
+    const a = now / 20000;
+    const b = mapDef.bounds;
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const rad = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) * (mapDef.model ? 0.55 : 0.37);
+    const h = mapDef.model ? 18 : 4.5;
+    world.setView(cx + Math.sin(a) * rad, h, cz + Math.cos(a) * rad, a, mapDef.model ? -0.38 : -0.12);
   }
 
   updateRemotes(now);

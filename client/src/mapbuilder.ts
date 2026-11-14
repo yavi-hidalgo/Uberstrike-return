@@ -565,6 +565,18 @@ function pickupVisual(x: number, y: number, z: number, withLight: boolean): Pick
   return { root, item, glow, light, baseY: 0.75 };
 }
 
+/** Solo botiquines (para mapas modelados, que traen su propio escenario). */
+export function buildPickups(quality: "low" | "medium" | "high", pickups: typeof PICKUPS): MapVisuals {
+  const group = new THREE.Group();
+  const map = new Map<number, PickupVisual>();
+  for (const k of pickups) {
+    const v = pickupVisual(k.x, k.y, k.z, quality === "high");
+    map.set(k.id, v);
+    group.add(v.root);
+  }
+  return { group, dome: null, blinkers: [], pickups: map };
+}
+
 export function buildMap(quality: "low" | "medium" | "high"): MapVisuals {
   const group = new THREE.Group();
   const blinkers: THREE.Mesh[] = [];

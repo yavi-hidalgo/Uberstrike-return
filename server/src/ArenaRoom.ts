@@ -5,7 +5,7 @@ import {
   MAX_QUEUED_INPUTS, NAME_MAX_LEN, PLAYER_HEIGHT, RESPAWN_MS, TICK_RATE,
   SWITCH_TICKS, VISIBILITY_GRACE_MS,
 } from "../../shared/src/constants";
-import { PICKUPS, SPAWN_POINTS } from "../../shared/src/map";
+import { mapById, type MapDef } from "../../shared/src/maps";
 import { validLoadout, weaponStats, type WeaponStats } from "../../shared/src/weapons";
 import {
   aimDirection, hitboxes, lineOfSight, rayBox, rayMap, stepMove,
@@ -102,9 +102,13 @@ export class ArenaRoom extends Room {
   private intermissionUntil = 0;
   private winner: string | null = null;
   /** id del botiquín -> momento (ms) en que vuelve a aparecer; 0 = disponible */
-  private pickupRespawn = new Map<number, number>(PICKUPS.map((p) => [p.id, 0]));
+  private map: MapDef = mapById(undefined);
+  private pickupRespawn = new Map<number, number>();
 
-  onCreate() {
+  onCreate(options: { map?: unknown } = {}) {
+    this.map = mapById(options?.map);
+    this.pickupRespawn = new Map(this.map.pickups.map((p) => [p.id, 0]));
+    this.setMetadata({ map: this.map.id });
     this.setSimulationInterval(() => this.update(), 1000 / TICK_RATE);
 
     this.onMessage("input", (client, msg: unknown) => {
@@ -144,7 +148,7 @@ export class ArenaRoom extends Room {
     const p = new Player(id, client, name, validLoadout(options?.primary, options?.secondary));
     this.players.set(client.sessionId, p);
     this.respawn(p);
-    client.send("welcome", { id, tickRate: TICK_RATE } satisfies WelcomeMsg);
+    client.send("welcome", { id, tickRate: TICK_RATE, map: this.map.id } satisfies WelcomeMsg);
     client.send("pickups", this.pickupsMsg());
     this.sendRoster();
   }
@@ -244,7 +248,7 @@ export class ArenaRoom extends Room {
     p.pitch = cmd.pitch;
     if (!p.alive) return;
 
-    stepMove(p.move, cmd.keys, cmd.yaw, DT);
+    stepMove(p.move, cmd.keys, cmd.yaw, DT, this.map.boxes);
 
     const w = p.stats[p.weapon];
     if (p.fireCooldown > 0) p.fireCooldown--;
@@ -307,7 +311,7 @@ export class ArenaRoom extends Room {
       // Dispersión calculada en el servidor: el cliente no la puede "corregir"
       const yawJ = (Math.random() * 2 - 1) * w.spread, pitchJ = (Math.random() * 2 - 1) * w.spread;
       const [dx, dy, dz] = w.spread > 0 ? aimDirection(p.yaw + yawJ, p.pitch + pitchJ) : [adx, ady, adz];
-      let best = rayMap(ox, oy, oz, dx, dy, dz, w.range);
+      let best = rayMap(ox, oy, oz, dx, dy, dz, w.range, this.map.boxes);
       let victim: Player | null = null;
       let headshot = false;
       for (const { q, past } of targets) {
@@ -356,13 +360,13 @@ export class ArenaRoom extends Room {
   // ---------- Botiquines ----------
 
   private pickupsMsg(): PickupsMsg {
-    return { active: PICKUPS.filter((k) => this.pickupRespawn.get(k.id) === 0).map((k) => k.id) };
+    return { active: this.map.pickups.filter((k) => this.pickupRespawn.get(k.id) === 0).map((k) => k.id) };
   }
 
   /** El servidor decide quién recoge un botiquín: basta con estar encima. */
   private updatePickups(now: number) {
     let changed = false;
-    for (const k of PICKUPS) {
+    for (const k of this.map.pickups) {
       const at = this.pickupRespawn.get(k.id)!;
       if (at !== 0) {
         if (now >= at) { this.pickupRespawn.set(k.id, 0); changed = true; }
@@ -387,9 +391,9 @@ export class ArenaRoom extends Room {
   private respawn(p: Player) {
     const others = [...this.players.values()].filter((q) => q !== p && q.alive);
     // Elegimos el punto de aparición más lejano a los demás jugadores vivos.
-    let bestSpawn = SPAWN_POINTS[0];
+    let bestSpawn = this.map.spawns[0];
     let bestScore = -Infinity;
-    for (const s of SPAWN_POINTS) {
+    for (const s of this.map.spawns) {
       const minDist = others.length
         ? Math.min(...others.map((q) => Math.hypot(q.move.x - s.x, q.move.z - s.z)))
         : 1000;
@@ -456,9 +460,9 @@ export class ArenaRoom extends Room {
         const close = Math.hypot(q.move.x - ex, q.move.z - ez) < 3;
         const visible =
           close ||
-          lineOfSight(ex, ey, ez, q.move.x, q.move.y + PLAYER_HEIGHT - 0.1, q.move.z) ||
-          lineOfSight(ex, ey, ez, q.move.x, q.move.y + 0.9, q.move.z) ||
-          lineOfSight(ex, ey, ez, q.move.x, q.move.y + 0.2, q.move.z);
+          lineOfSight(ex, ey, ez, q.move.x, q.move.y + PLAYER_HEIGHT - 0.1, q.move.z, this.map.boxes) ||
+          lineOfSight(ex, ey, ez, q.move.x, q.move.y + 0.9, q.move.z, this.map.boxes) ||
+          lineOfSight(ex, ey, ez, q.move.x, q.move.y + 0.2, q.move.z, this.map.boxes);
         if (visible) r.lastSeen.set(q.id, now);
         if (now - (r.lastSeen.get(q.id) ?? 0) <= VISIBILITY_GRACE_MS) {
           others.push([

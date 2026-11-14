@@ -5,9 +5,11 @@ import {
   ToneMappingEffect, ToneMappingMode, VignetteEffect, type Effect,
 } from "postprocessing";
 import { EYE_HEIGHT } from "../../shared/src/constants";
-import { ARENA_HALF } from "../../shared/src/map";
+import type { MapDef } from "../../shared/src/maps";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { Environment, MOON_DIR } from "./environment";
-import { buildMap, type MapVisuals } from "./mapbuilder";
+import { buildMap, buildPickups, type MapVisuals } from "./mapbuilder";
 import { ShotEffects, ViewWeapon } from "./weapon";
 import { Avatar, loadAvatarModel } from "./avatars";
 import { buildProps, hasModel, loadPropModels } from "./props";
@@ -41,7 +43,7 @@ export class World {
   private weaponScene = new THREE.Scene();
   private weaponCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 20);
 
-  constructor(canvas: HTMLCanvasElement, readonly quality: Quality) {
+  constructor(canvas: HTMLCanvasElement, readonly quality: Quality, readonly mapDef: MapDef) {
     const usePost = quality !== "low";
     this.renderer = new THREE.WebGLRenderer({
       canvas, antialias: !usePost, powerPreference: "high-performance", stencil: false,
@@ -74,17 +76,24 @@ export class World {
     const sz = quality === "high" ? 4096 : 2048;
     moon.shadow.mapSize.set(sz, sz);
     const sc = moon.shadow.camera;
-    sc.left = sc.bottom = -ARENA_HALF - 6;
-    sc.right = sc.top = ARENA_HALF + 6;
+    // La sombra cubre todo el mapa
+    const bnd = mapDef.bounds;
+    const half = Math.max(bnd.maxX - bnd.minX, bnd.maxZ - bnd.minZ) / 2 + 6;
+    const cx = (bnd.minX + bnd.maxX) / 2, cz = (bnd.minZ + bnd.maxZ) / 2;
+    sc.left = sc.bottom = -half;
+    sc.right = sc.top = half;
     sc.near = 1;
-    sc.far = 140;
+    sc.far = 260;
+    moon.position.add(new THREE.Vector3(cx, 30, cz));
+    moon.target.position.set(cx, 0, cz);
+    this.scene.add(moon.target);
     moon.shadow.bias = -0.0004;
     moon.shadow.normalBias = 0.03;
     if (quality === "high") moon.shadow.radius = 3;
     this.scene.add(moon);
 
-    // Mapa
-    this.map = buildMap(quality);
+    // Mapa: construido por código (observatorio) o escenario modelado (se carga en load())
+    this.map = mapDef.model ? buildPickups(quality, mapDef.pickups) : buildMap(quality);
     this.scene.add(this.map.group);
 
     // Arma en primera persona
@@ -116,7 +125,9 @@ export class World {
       loadAvatarModel(`${base}assets/models/robot.glb`).catch((e) => console.warn("Sin modelo de jugador; se usan cápsulas.", e)),
       loadPropModels(),
       this.loadSkyLight(`${base}assets/hdri/rogland_clear_night_1k.hdr`),
+      this.mapDef.model ? this.loadMapModel() : Promise.resolve(),
     ]);
+    if (this.mapDef.model) return;
     // Objetos reales y reemplazo de las versiones generadas por código
     this.scene.add(buildProps(this.quality));
     const replaceRocks = hasModel("rock_09"), replaceLamps = hasModel("street_lamp_02");
@@ -125,6 +136,31 @@ export class World {
       if (replaceLamps && o.userData.proceduralLampHead) o.visible = false;
       if (replaceLamps && o.userData.lampPole) { o.scale.y = 3.1 / 3.6; o.position.y = 3.1 / 2; }
     });
+  }
+
+  /** Escenario modelado (Sketchfab): escalado a metros reales y con la calle en y = 0. */
+  private async loadMapModel() {
+    const m = this.mapDef.model!;
+    const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    const g = await loader.loadAsync(`${import.meta.env.BASE_URL}assets/maps/${m.file}`);
+    const root = g.scene;
+    root.scale.setScalar(m.scale);
+    root.position.y = m.groundOffset;
+    const shadows = this.quality !== "low";
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = shadows;
+      mesh.receiveShadow = shadows;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        const sm = mat as THREE.MeshStandardMaterial;
+        if (sm.map) sm.map.anisotropy = 8;
+        if (sm.transparent && sm.alphaMap == null && sm.opacity >= 0.99) sm.transparent = false;
+      }
+    });
+    this.scene.add(root);
   }
 
   /** Carga y coloca en primera persona el arma principal y la pistola elegidas. */

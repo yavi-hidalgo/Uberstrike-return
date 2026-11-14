@@ -5,7 +5,9 @@ import {
   EYE_HEIGHT, GRAVITY, JUMP_VELOCITY, KEY, MOVE_SPEED,
   PLAYER_HEIGHT, PLAYER_RADIUS,
 } from "./constants";
-import { MAP_BOXES, type Box } from "./map";
+import type { Box } from "./map";
+import { MAPS, DEFAULT_MAP } from "./maps";
+const MAP_BOXES: Box[] = MAPS[DEFAULT_MAP].boxes;
 
 export interface MoveState {
   x: number;

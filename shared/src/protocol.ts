@@ -52,6 +52,7 @@ export interface RosterMsg {
 export interface WelcomeMsg {
   id: number;
   tickRate: number;
+  map: string; // id del mapa de esta sala
 }
 
 /** Trazadora de un disparo (solo si ves al tirador o eres la víctima). */
