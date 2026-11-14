@@ -5,7 +5,10 @@ import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { Client, type Room } from "colyseus.js";
 import { ArenaRoom } from "../src/ArenaRoom";
-import { DT, KEY, MOVE_SPEED, SWITCH_TICKS, WEAPON, WEAPONS } from "../../shared/src/constants";
+import { DT, KEY, MOVE_SPEED, SWITCH_TICKS } from "../../shared/src/constants";
+import { DEFAULT_PRIMARY, DEFAULT_SECONDARY, weaponStats } from "../../shared/src/weapons";
+const WEAPON = weaponStats(DEFAULT_PRIMARY);
+const PISTOL = weaponStats(DEFAULT_SECONDARY);
 import type { SnapshotMsg } from "../../shared/src/protocol";
 
 const PORT = 2600 + Math.floor(Math.random() * 300);
@@ -30,11 +33,11 @@ interface Bot {
   events: { type: string; msg: any }[];
 }
 
-async function join(name: string, roomId?: string): Promise<Bot> {
+async function join(name: string, roomId?: string, extra: Record<string, unknown> = {}): Promise<Bot> {
   const client = new Client(`ws://localhost:${PORT}`);
   const room = roomId
-    ? await client.joinById(roomId, { name })
-    : await client.create("arena", { name });
+    ? await client.joinById(roomId, { name, ...extra })
+    : await client.create("arena", { name, ...extra });
   const bot: Bot = { room, id: 0, last: null, events: [] };
   room.onMessage("welcome", (m) => (bot.id = m.id));
   room.onMessage("snap", (m) => (bot.last = m));
@@ -201,8 +204,35 @@ test("cambio de arma y pistola semiautomática: mantener el gatillo dispara solo
     await sleep(DT * 1000);
   }
   await sleep(200);
-  assert.equal(p.ammo[1], WEAPONS[1].magazine - 1);
-  assert.equal(p.ammo[0], WEAPONS[0].magazine, "el rifle no se toca");
+  assert.equal(p.ammo[1], PISTOL.magazine - 1);
+  assert.equal(p.ammo[0], WEAPON.magazine, "el rifle no se toca");
   assert.equal(a.last!.you.weapon, 1);
   await a.room.leave();
+});
+
+test("equipamiento: el servidor rechaza armas inventadas o en la ranura equivocada", async () => {
+  const a = await join("Tramposo", undefined, { primary: "arma_inventada", secondary: "f32fe06215" });
+  const p = serverPlayer(a);
+  assert.equal(p.loadout[0], DEFAULT_PRIMARY, "arma desconocida -> la predeterminada");
+  assert.equal(p.loadout[1], DEFAULT_SECONDARY, "un rifle no puede ir en la ranura de pistola");
+  await a.room.leave();
+});
+
+test("escopeta: un disparo lanza varios perdigones y suma su daño", async () => {
+  const a = await join("Escopetero", undefined, { primary: "6db0ad4764" }); // Remington 870
+  const b = await join("Blanco2", a.room.roomId);
+  const pa = serverPlayer(a), pb = serverPlayer(b);
+  const sg = weaponStats("6db0ad4764");
+  assert.equal(sg.pellets, 8);
+  Object.assign(pa.move, { x: -27, y: 0, z: -12, vy: 0, onGround: true });
+  Object.assign(pb.move, { x: -27, y: 0, z: -9, vy: 0, onGround: true }); // a 3 m
+  await sleep(500);
+  a.room.send("input", { seq: 1, keys: KEY.FIRE, yaw: Math.PI, pitch: -0.05 });
+  await sleep(300);
+  const hit = a.events.find((e) => e.type === "hit");
+  assert.ok(hit, "debe impactar");
+  assert.ok(hit!.msg.damage > sg.damage, `a 3 m varios perdigones deben acertar (daño ${hit!.msg.damage})`);
+  assert.equal(pa.ammo[0], sg.magazine - 1, "un disparo gasta un solo cartucho");
+  await a.room.leave();
+  await b.room.leave();
 });

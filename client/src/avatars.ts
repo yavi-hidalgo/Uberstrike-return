@@ -3,7 +3,6 @@ import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { MAX_HP, PLAYER_HEIGHT } from "../../shared/src/constants";
-import { buildKestrel } from "./weapon";
 import { softSprite } from "./textures";
 
 const PLAYER_COLORS = [0xd94b3b, 0x3b7dd9, 0x3fae5a, 0xe0a83a, 0x9a5ad9, 0x2fb8b0, 0xd95aa8, 0xe8e8e8];
@@ -57,6 +56,8 @@ export class Avatar {
   private hasPose = false;
   dyingUntil = 0;
   name: string;
+  weaponId = "";
+  private weaponHolder = new THREE.Group();
 
   constructor(readonly id: number, name: string) {
     this.name = name;
@@ -90,12 +91,6 @@ export class Avatar {
         }
       }
       this.play("Idle", 0);
-      // Rifle sujeto al pecho, apuntando hacia donde mira el jugador
-      const gun = buildKestrel().group;
-      gun.traverse((o) => { o.castShadow = true; });
-      gun.scale.setScalar(1.15);
-      gun.position.set(0.24, 1.05, -0.32);
-      this.group.add(gun);
     } else {
       const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 4, 10), new THREE.MeshStandardMaterial({ color }));
       body.position.y = 0.9;
@@ -111,6 +106,10 @@ export class Avatar {
     blob.position.y = 0.02;
     this.group.add(blob);
 
+    // El arma va sujeta a la altura del pecho y apunta hacia donde mira el jugador
+    this.weaponHolder.position.set(0.24, 1.08, -0.15);
+    this.group.add(this.weaponHolder);
+
     this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeTag(name, MAX_HP), depthTest: true, transparent: true }));
     this.tag.scale.set(1.5, 0.42, 1);
     this.tag.position.y = PLAYER_HEIGHT + 0.45;
@@ -125,6 +124,14 @@ export class Avatar {
     const prev = this.current ? this.actions.get(this.current) : null;
     if (prev) prev.crossFadeTo(next, fade, false);
     this.current = name;
+  }
+
+  setWeaponModel(o: THREE.Object3D) {
+    this.weaponHolder.clear();
+    const len = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()).z;
+    o.position.z -= len * 0.3; // la culata cerca del hombro
+    o.traverse((c) => { (c as THREE.Mesh).frustumCulled = true; });
+    this.weaponHolder.add(o);
   }
 
   setName(name: string) {

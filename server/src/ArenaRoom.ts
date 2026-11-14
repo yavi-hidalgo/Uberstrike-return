@@ -3,9 +3,10 @@ import {
   DT, EYE_HEIGHT, IDLE_INPUT_MS, KEY, KEY_MASK, MAX_ABUSE_STRIKES, MAX_HP,
   MAX_INPUT_CREDITS, MAX_MESSAGES_PER_SECOND, MAX_PITCH, MAX_PLAYERS,
   MAX_QUEUED_INPUTS, NAME_MAX_LEN, PLAYER_HEIGHT, RESPAWN_MS, TICK_RATE,
-  SWITCH_TICKS, VISIBILITY_GRACE_MS, WEAPONS,
+  SWITCH_TICKS, VISIBILITY_GRACE_MS,
 } from "../../shared/src/constants";
 import { PICKUPS, SPAWN_POINTS } from "../../shared/src/map";
+import { validLoadout, weaponStats, type WeaponStats } from "../../shared/src/weapons";
 import {
   aimDirection, hitboxes, lineOfSight, rayBox, rayMap, stepMove,
   type InputCmd, type MoveState,
@@ -31,8 +32,10 @@ class Player {
   hp = MAX_HP;
   alive = false;
   respawnAt = 0;
-  weapon = 0; // índice en WEAPONS
-  ammo: number[] = WEAPONS.map((w) => w.magazine);
+  weapon = 0; // 0 = principal, 1 = pistola
+  loadout: [string, string];
+  stats: [WeaponStats, WeaponStats];
+  ammo: number[];
   reloadTicks = 0;
   fireCooldown = 0;
   switchTicks = 0;
@@ -59,7 +62,12 @@ class Player {
     readonly id: number,
     readonly client: Client,
     readonly name: string,
-  ) {}
+    loadout: [string, string],
+  ) {
+    this.loadout = loadout;
+    this.stats = [weaponStats(loadout[0]), weaponStats(loadout[1])];
+    this.ammo = this.stats.map((w) => w.magazine);
+  }
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -130,10 +138,10 @@ export class ArenaRoom extends Room {
     }, 1000);
   }
 
-  onJoin(client: Client, options: { name?: unknown } = {}) {
+  onJoin(client: Client, options: { name?: unknown; primary?: unknown; secondary?: unknown } = {}) {
     const id = this.nextId++;
     const name = sanitizeName(options?.name, `Jugador${id}`);
-    const p = new Player(id, client, name);
+    const p = new Player(id, client, name, validLoadout(options?.primary, options?.secondary));
     this.players.set(client.sessionId, p);
     this.respawn(p);
     client.send("welcome", { id, tickRate: TICK_RATE } satisfies WelcomeMsg);
@@ -238,7 +246,7 @@ export class ArenaRoom extends Room {
 
     stepMove(p.move, cmd.keys, cmd.yaw, DT);
 
-    const w = WEAPONS[p.weapon];
+    const w = p.stats[p.weapon];
     if (p.fireCooldown > 0) p.fireCooldown--;
     if (p.switchTicks > 0) p.switchTicks--;
     if (p.reloadTicks > 0) {
@@ -279,9 +287,8 @@ export class ArenaRoom extends Room {
 
   private fire(p: Player) {
     const ox = p.move.x, oy = p.move.y + EYE_HEIGHT, oz = p.move.z;
-    const [dx, dy, dz] = aimDirection(p.yaw, p.pitch);
-    const w = WEAPONS[p.weapon];
-    const wallT = rayMap(ox, oy, oz, dx, dy, dz, w.range);
+    const [adx, ady, adz] = aimDirection(p.yaw, p.pitch);
+    const w = p.stats[p.weapon];
 
     // El tirador vio a los demás con retraso (su ping + interpolación), así que
     // comprobamos el impacto contra donde estaban en ese momento, con un límite.
@@ -289,53 +296,60 @@ export class ArenaRoom extends Room {
       MAX_REWIND_TICKS,
       Math.round((p.rttMs / 2 + CLIENT_INTERP_MS) / (DT * 1000)),
     );
+    const targets = this.intermissionUntil ? [] : [...this.players.values()]
+      .filter((q) => q !== p && q.alive)
+      .map((q) => ({ q, past: this.pastPosition(q, rewind) }))
+      .filter((t) => t.past.alive);
 
-    let best = wallT;
-    let victim: Player | null = null;
-    let headshot = false;
-    if (!this.intermissionUntil) {
-      for (const q of this.players.values()) {
-        if (q === p || !q.alive) continue;
-        const past = this.pastPosition(q, rewind);
-        if (!past.alive) continue;
+    // Daño acumulado por víctima (una escopeta lanza varios perdigones)
+    const damageTo = new Map<Player, { damage: number; headshot: boolean }>();
+    for (let k = 0; k < w.pellets; k++) {
+      // Dispersión calculada en el servidor: el cliente no la puede "corregir"
+      const yawJ = (Math.random() * 2 - 1) * w.spread, pitchJ = (Math.random() * 2 - 1) * w.spread;
+      const [dx, dy, dz] = w.spread > 0 ? aimDirection(p.yaw + yawJ, p.pitch + pitchJ) : [adx, ady, adz];
+      let best = rayMap(ox, oy, oz, dx, dy, dz, w.range);
+      let victim: Player | null = null;
+      let headshot = false;
+      for (const { q, past } of targets) {
         const hb = hitboxes(past.x, past.y, past.z);
         const tHead = rayBox(ox, oy, oz, dx, dy, dz, hb.head.min, hb.head.max);
         const tBody = rayBox(ox, oy, oz, dx, dy, dz, hb.body.min, hb.body.max);
         const t = Math.min(tHead, tBody);
-        if (t < best) {
-          best = t;
-          victim = q;
-          headshot = tHead <= tBody;
-        }
+        if (t < best) { best = t; victim = q; headshot = tHead <= tBody; }
+      }
+      const from: [number, number, number] = [ox, oy - 0.15, oz];
+      const to: [number, number, number] = [ox + dx * best, oy + dy * best, oz + dz * best];
+      const shot: ShotMsg = { id: p.id, from, to };
+      for (const r of this.players.values()) {
+        if (r === p) continue; // el tirador dibuja su propia trazadora al instante
+        const canSee = (r.lastSeen.get(p.id) ?? 0) > Date.now() - VISIBILITY_GRACE_MS;
+        if (canSee || r === victim) r.client.send("shot", shot);
+      }
+      if (victim) {
+        const prev = damageTo.get(victim) ?? { damage: 0, headshot: false };
+        prev.damage += headshot ? w.headshotDamage : w.damage;
+        prev.headshot ||= headshot;
+        damageTo.set(victim, prev);
       }
     }
 
-    const from: [number, number, number] = [ox, oy - 0.15, oz];
-    const to: [number, number, number] = [ox + dx * best, oy + dy * best, oz + dz * best];
-    const shot: ShotMsg = { id: p.id, from, to };
-    for (const r of this.players.values()) {
-      if (r === p) continue; // el tirador dibuja su propia trazadora al instante
-      const canSee = (r.lastSeen.get(p.id) ?? 0) > Date.now() - VISIBILITY_GRACE_MS;
-      if (canSee || r === victim) r.client.send("shot", shot);
-    }
-
-    if (!victim) return;
-    const damage = headshot ? w.headshotDamage : w.damage;
-    victim.hp = Math.max(0, victim.hp - damage);
-    const killed = victim.hp === 0;
-    p.client.send("hit", { damage, headshot, kill: killed } satisfies HitMsg);
-    victim.client.send("damaged", {
-      fromAngle: Math.atan2(p.move.x - victim.move.x, p.move.z - victim.move.z),
-    } satisfies DamagedMsg);
-
-    if (killed) {
-      victim.alive = false;
-      victim.deaths++;
-      victim.respawnAt = Date.now() + RESPAWN_MS;
-      p.kills++;
-      this.broadcast("kill", { killer: p.id, victim: victim.id, headshot } satisfies KillMsg);
-      if (p.kills >= FRAG_LIMIT) this.endRound(p);
-      this.sendRoster();
+    for (const [victim, { damage, headshot }] of damageTo) {
+      if (!victim.alive) continue;
+      victim.hp = Math.max(0, victim.hp - damage);
+      const killed = victim.hp === 0;
+      p.client.send("hit", { damage, headshot, kill: killed } satisfies HitMsg);
+      victim.client.send("damaged", {
+        fromAngle: Math.atan2(p.move.x - victim.move.x, p.move.z - victim.move.z),
+      } satisfies DamagedMsg);
+      if (killed) {
+        victim.alive = false;
+        victim.deaths++;
+        victim.respawnAt = Date.now() + RESPAWN_MS;
+        p.kills++;
+        this.broadcast("kill", { killer: p.id, victim: victim.id, headshot } satisfies KillMsg);
+        if (p.kills >= FRAG_LIMIT) this.endRound(p);
+        this.sendRoster();
+      }
     }
   }
 
@@ -390,7 +404,7 @@ export class ArenaRoom extends Room {
     p.pitch = 0;
     p.hp = MAX_HP;
     p.alive = true;
-    p.ammo = WEAPONS.map((x) => x.magazine);
+    p.ammo = p.stats.map((x) => x.magazine);
     p.weapon = 0;
     p.switchTicks = 0;
     p.reloadTicks = 0;
@@ -419,7 +433,7 @@ export class ArenaRoom extends Room {
   private sendRoster() {
     const msg: RosterMsg = {
       players: [...this.players.values()].map((p) => ({
-        id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, alive: p.alive,
+        id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, alive: p.alive, loadout: p.loadout,
       })),
       fragLimit: FRAG_LIMIT,
       intermission: this.intermissionUntil ? Math.max(0, this.intermissionUntil - Date.now()) : 0,
@@ -450,7 +464,7 @@ export class ArenaRoom extends Room {
           others.push([
             q.id,
             round2(q.move.x), round2(q.move.y), round2(q.move.z),
-            round3(q.yaw), round3(q.pitch), q.hp,
+            round3(q.yaw), round3(q.pitch), q.hp, q.weapon,
           ]);
         }
       }

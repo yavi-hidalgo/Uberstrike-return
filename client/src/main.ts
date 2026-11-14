@@ -3,7 +3,11 @@ import "@fontsource/saira-condensed/500.css";
 import "@fontsource/saira-condensed/700.css";
 import "@fontsource/saira-condensed/800.css";
 import { Client, type Room } from "colyseus.js";
-import { DT, EYE_HEIGHT, KEY, MAX_HP, MAX_PITCH, WEAPONS } from "../../shared/src/constants";
+import { DT, EYE_HEIGHT, KEY, MAX_HP, MAX_PITCH } from "../../shared/src/constants";
+import {
+  CATEGORY_NAMES, DEFAULT_PRIMARY, DEFAULT_SECONDARY, WEAPON_MODELS, validLoadout, weaponModel, weaponStats,
+  type Category, type WeaponStats,
+} from "../../shared/src/weapons";
 import { aimDirection, rayMapHit, stepMove, type InputCmd, type MoveState } from "../../shared/src/physics";
 import type {
   DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, RosterEntry, RosterMsg,
@@ -47,8 +51,14 @@ let horizSpeed = 0;
 let stepTimer = 0;
 let wasOnGround = true;
 
+// Equipamiento elegido en el menú (el servidor lo vuelve a validar)
+let loadout: [string, string] = [DEFAULT_PRIMARY, DEFAULT_SECONDARY];
+try { loadout = validLoadout(localStorage.getItem("arena.primary"), localStorage.getItem("arena.secondary")); } catch { /* sin storage */ }
+let slotStats: [WeaponStats, WeaponStats] = [weaponStats(loadout[0]), weaponStats(loadout[1])];
+let aiming = false;
+
 let me = {
-  alive: true, hp: MAX_HP, ammo: WEAPONS[0].magazine, weapon: 0, switching: false, reloading: false, respawnIn: 0, ping: 0,
+  alive: true, hp: MAX_HP, ammo: slotStats[0].magazine, weapon: 0, switching: false, reloading: false, respawnIn: 0, ping: 0,
 };
 let prevFireHeld = false;
 let localFireCooldown = 0;
@@ -74,6 +84,41 @@ qualitySel.addEventListener("change", () => {
   location.reload();
 });
 
+// Selectores de armas agrupados por tipo
+const primarySel = $<HTMLSelectElement>("primary");
+const secondarySel = $<HTMLSelectElement>("secondary");
+const order: Category[] = ["rifle", "smg", "shotgun", "sniper"];
+for (const cat of order) {
+  for (const fut of [false, true]) {
+    const list = WEAPON_MODELS.filter((w) => w.category === cat && w.futuristic === fut);
+    if (!list.length) continue;
+    const g = document.createElement("optgroup");
+    g.label = `${CATEGORY_NAMES[cat]}${fut ? " · futurista" : ""}`;
+    for (const w of list) g.append(new Option(w.name, w.id));
+    primarySel.append(g);
+  }
+}
+for (const w of WEAPON_MODELS.filter((x) => x.category === "pistol")) {
+  secondarySel.append(new Option(`${w.name}${w.futuristic ? " (futurista)" : ""}`, w.id));
+}
+primarySel.value = loadout[0];
+secondarySel.value = loadout[1];
+function describe(id: string): string {
+  const m = weaponModel(id);
+  if (!m) return "";
+  const st = weaponStats(id);
+  const rate = Math.round(30 / st.fireIntervalTicks * 10) / 10;
+  const dmg = st.pellets > 1 ? `${st.pellets}×${st.damage}` : `${st.damage}`;
+  return `${CATEGORY_NAMES[m.category]} · daño ${dmg} · ${rate} disp/s · cargador ${st.magazine}${st.zoomFov ? " · mira" : ""}${m.author ? ` · modelo de ${m.author}` : ""}`;
+}
+function updateLoadoutInfo() {
+  $("primary-info").textContent = describe(primarySel.value);
+  $("secondary-info").textContent = describe(secondarySel.value);
+}
+primarySel.addEventListener("change", updateLoadoutInfo);
+secondarySel.addEventListener("change", updateLoadoutInfo);
+updateLoadoutInfo();
+
 joinBtn.disabled = true;
 joinBtn.textContent = "Cargando…";
 worldReady.then(() => {
@@ -84,12 +129,21 @@ worldReady.then(() => {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = nameInput.value.trim() || "Jugador";
-  try { localStorage.setItem("arena.name", name); } catch { /* sin storage */ }
+  loadout = validLoadout(primarySel.value, secondarySel.value);
+  slotStats = [weaponStats(loadout[0]), weaponStats(loadout[1])];
+  try {
+    localStorage.setItem("arena.name", name);
+    localStorage.setItem("arena.primary", loadout[0]);
+    localStorage.setItem("arena.secondary", loadout[1]);
+  } catch { /* sin storage */ }
   joinBtn.disabled = true;
   menuError.textContent = "";
   sfx.unlock();
   try {
     await worldReady;
+    joinBtn.textContent = "Preparando armas…";
+    await world.equip(loadout);
+    joinBtn.textContent = "Jugar";
     await connect(name);
     $("menu").classList.add("hidden");
     $("hud").classList.remove("hidden");
@@ -104,7 +158,7 @@ form.addEventListener("submit", async (e) => {
 
 async function connect(name: string) {
   const client = new Client(SERVER_URL);
-  room = await client.joinOrCreate("arena", { name });
+  room = await client.joinOrCreate("arena", { name, primary: loadout[0], secondary: loadout[1] });
 
   room.onMessage("welcome", (m: WelcomeMsg) => { myId = m.id; });
   room.onMessage("ping", (m) => room?.send("pong", m));
@@ -274,8 +328,11 @@ document.addEventListener("mousemove", (e) => {
 });
 document.addEventListener("mousedown", (e) => {
   if (e.button === 0 && document.pointerLockElement === canvas) mouseDown = true;
+  if (e.button === 2 && document.pointerLockElement === canvas) aiming = true;
 });
+document.addEventListener("contextmenu", (e) => { if (room) e.preventDefault(); });
 document.addEventListener("mouseup", (e) => {
+  if (e.button === 2) aiming = false;
   if (e.button === 0) mouseDown = false;
 });
 window.addEventListener("keydown", (e) => {
@@ -360,7 +417,7 @@ function predictLocalFire(keys: number) {
     sfx.switchWeapon();
     localFireCooldown = 12;
   }
-  const w = WEAPONS[me.weapon];
+  const w = slotStats[me.weapon];
   if (localFireCooldown > 0) localFireCooldown--;
   const held = (keys & KEY.FIRE) !== 0;
   const trigger = w.semiAuto ? held && !prevFireHeld : held;
@@ -369,12 +426,22 @@ function predictLocalFire(keys: number) {
   if (!trigger || localFireCooldown > 0 || me.reloading || me.switching || me.ammo <= 0) return;
   localFireCooldown = w.fireIntervalTicks;
   const ox = pred.x, oy = pred.y + EYE_HEIGHT, oz = pred.z;
-  const [dx, dy, dz] = aimDirection(yaw, pitch);
-  const hit = rayMapHit(ox, oy, oz, dx, dy, dz, w.range);
-  const point = new THREE.Vector3(ox + dx * hit.t, oy + dy * hit.t, oz + dz * hit.t);
-  const isWall = hit.t < w.range - 0.01;
-  world.localShot(point, new THREE.Vector3(...hit.normal), isWall ? hit.kind : null, pred.y);
-  if (me.weapon === 1) sfx.pistol(); else sfx.shoot();
+  // Los perdigones y la dispersión de aquí son solo visuales: el servidor tira los suyos
+  const hits = [];
+  for (let k = 0; k < w.pellets; k++) {
+    const jy = (Math.random() * 2 - 1) * w.spread, jp = (Math.random() * 2 - 1) * w.spread;
+    const [dx, dy, dz] = aimDirection(yaw + jy, pitch + jp);
+    const hit = rayMapHit(ox, oy, oz, dx, dy, dz, w.range);
+    const isWall = hit.t < w.range - 0.01;
+    hits.push({ point: new THREE.Vector3(ox + dx * hit.t, oy + dy * hit.t, oz + dz * hit.t), normal: new THREE.Vector3(...hit.normal), kind: isWall ? hit.kind : null });
+  }
+  world.localShot(hits, pred.y);
+  const cat = weaponModel(loadout[me.weapon])?.category;
+  if (cat === "pistol") sfx.pistol();
+  else if (cat === "shotgun") sfx.shotgun();
+  else if (cat === "sniper") sfx.sniper();
+  else sfx.shoot();
+  if (cat === "sniper" || cat === "shotgun") aiming = aiming && cat === "sniper";
 }
 
 // ---------- Render ----------
@@ -404,6 +471,8 @@ function updateRemotes(now: number) {
     av.group.visible = true;
     av.setPose(lerp(sa[1], sb[1], alpha), lerp(sa[2], sb[2], alpha), lerp(sa[3], sb[3], alpha), lerpAngle(sa[4], sb[4], alpha), dt);
     av.setHp(sb[6]);
+    const lo = roster.get(id)?.loadout;
+    if (lo) void world.setAvatarWeapon(id, lo[sb[7] ?? 0] ?? lo[0]);
     seen.add(id);
   }
   // Los que no están en el último snapshot (muertos o fuera de la vista) se ocultan,
@@ -421,10 +490,13 @@ function updateHud() {
   const fill = $("hp-fill");
   fill.style.width = `${(me.hp / MAX_HP) * 100}%`;
   fill.classList.toggle("low", me.hp <= 30);
-  const w = WEAPONS[me.weapon];
+  const w = slotStats[me.weapon];
   $("ammo").textContent = String(me.ammo);
   $("ammo-max").textContent = `/ ${w.magazine}`;
-  $("weapon-name").textContent = w.name.toUpperCase();
+  $("weapon-name").textContent = (weaponModel(loadout[me.weapon])?.name ?? "").toUpperCase();
+  const zoom = aiming && me.alive && !me.reloading && me.weapon === 0 ? w.zoomFov : 0;
+  world.setZoom(zoom);
+  $("scope").classList.toggle("hidden", !(zoom > 0));
   $("slot-1").classList.toggle("active", me.weapon === 0);
   $("slot-2").classList.toggle("active", me.weapon === 1);
   $("reload").classList.toggle("hidden", !me.reloading);
@@ -502,6 +574,7 @@ function frame(now: number) {
   world.render(dt, {
     speed: horizSpeed, onGround: pred.onGround, lookDX, lookDY,
     reloading: me.reloading, alive: !!room && me.alive,
+    aiming: aiming && me.weapon === 0 && slotStats[0].zoomFov > 0 && !me.reloading,
   });
   lookDX = lookDY = 0;
   requestAnimationFrame(frame);
@@ -527,6 +600,7 @@ if (import.meta.env.DEV) {
       look(y: number, p: number) { yaw = y; pitch = p; },
       get others() { return remoteBuffer.length ? [...remoteBuffer[remoteBuffer.length - 1].others.values()] : []; },
       fire(on: boolean) { mouseDown = on; },
+      aim(on: boolean) { aiming = on; },
     },
   });
 }

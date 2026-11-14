@@ -16,15 +16,15 @@ export interface SelfSnapshot {
   hp: number;
   alive: boolean;
   ammo: number; // del arma en mano
-  weapon: number; // índice en WEAPONS
+  weapon: number; // 0 = principal, 1 = pistola
   switching: boolean;
   reloading: boolean;
   respawnIn: number; // ms, 0 si está vivo
   ping: number; // ms, medido por el servidor
 }
 
-/** Otro jugador: [id, x, y, z, yaw, pitch, hp]. Solo se envían los que puedes ver. */
-export type OtherSnapshot = [number, number, number, number, number, number, number];
+/** Otro jugador: [id, x, y, z, yaw, pitch, hp, arma en mano (0/1)]. Solo se envían los que puedes ver. */
+export type OtherSnapshot = [number, number, number, number, number, number, number, number];
 
 export interface SnapshotMsg {
   tick: number;
@@ -38,6 +38,7 @@ export interface RosterEntry {
   kills: number;
   deaths: number;
   alive: boolean;
+  loadout: [string, string]; // ids de arma principal y pistola
 }
 
 export interface RosterMsg {

@@ -28,6 +28,20 @@ Se elige en el menú:
 
 Las texturas son escaneos fotográficos de Poly Haven (CC0) con color, relieve y oclusión/rugosidad/metal; los objetos (barriles, generador, armarios eléctricos, faroles, rocas, abetos...) son modelos 3D reales optimizados. Los recursos están en `client/public/assets/` y los créditos en [CREDITS.md](CREDITS.md).
 
+## Armería
+
+Antes de entrar eliges en el menú un **arma principal** y una **pistola**. Hay 45 armas, realistas y futuristas:
+
+| Tipo | Cómo se juega |
+|---|---|
+| Rifle de asalto | Automático, equilibrado |
+| Subfusil | Muy rápido, poco alcance |
+| Escopeta | 8 perdigones por disparo, demoledora de cerca |
+| Francotirador | Mucho daño, mira con zoom (clic derecho) |
+| Pistola | Semiautomática, arma de respaldo |
+
+Cada modelo tiene pequeñas diferencias de daño, cadencia y cargador; las futuristas pegan algo más fuerte con menos balas. El servidor valida la elección y calcula la dispersión de cada perdigón, así que no se puede hacer trampa con el arma. Los autores de los modelos están en [CREDITS.md](CREDITS.md).
+
 ## Requisitos
 
 - [Node.js](https://nodejs.org/) 20 o superior (LTS)
@@ -63,7 +77,8 @@ Para jugar con alguien de tu misma red Wi-Fi, comparte la dirección "Network" q
 | Clic izquierdo | disparar |
 | `Espacio` | saltar |
 | `R` | recargar |
-| `1` / `2` | rifle / pistola |
+| `1` / `2` | arma principal / pistola |
+| Clic derecho | apuntar con mira (francotiradores) |
 | `Tab` | ver el marcador |
 | `Esc` | soltar el ratón |
 

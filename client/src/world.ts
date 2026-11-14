@@ -10,7 +10,8 @@ import { Environment, MOON_DIR } from "./environment";
 import { buildMap, type MapVisuals } from "./mapbuilder";
 import { ShotEffects, ViewWeapon } from "./weapon";
 import { Avatar, loadAvatarModel } from "./avatars";
-import { buildProps, hasModel, loadPropModels, pistolModel } from "./props";
+import { buildProps, hasModel, loadPropModels } from "./props";
+import { weaponAnchors, weaponObject } from "./weaponmodels";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 
 export type Quality = "low" | "medium" | "high";
@@ -120,8 +121,33 @@ export class World {
       if (replaceLamps && o.userData.proceduralLampHead) o.visible = false;
       if (replaceLamps && o.userData.lampPole) { o.scale.y = 3.1 / 3.6; o.position.y = 3.1 / 2; }
     });
-    const pistol = pistolModel();
-    if (pistol) this.weapon.setPistolModel(pistol);
+  }
+
+  /** Carga y coloca en primera persona el arma principal y la pistola elegidas. */
+  async equip(loadout: [string, string]) {
+    await Promise.all(loadout.map(async (id, slot) => {
+      const o = await weaponObject(id);
+      if (o) this.weapon.setSlotModel(slot, o, weaponAnchors(o));
+    }));
+  }
+
+  /** Arma que lleva en la mano un rival (se carga la primera vez que se ve). */
+  async setAvatarWeapon(playerId: number, weaponId: string) {
+    const a = this.avatars.get(playerId);
+    if (!a || a.weaponId === weaponId) return;
+    a.weaponId = weaponId;
+    const o = await weaponObject(weaponId);
+    if (o && a.weaponId === weaponId) a.setWeaponModel(o);
+  }
+
+  private baseFov = 72;
+  /** Zoom de la mira (0 = sin zoom). */
+  setZoom(fov: number) {
+    const target = fov > 0 ? fov : this.baseFov;
+    if (Math.abs(this.camera.fov - target) < 0.01) return;
+    this.camera.fov += (target - this.camera.fov) * 0.35;
+    if (Math.abs(this.camera.fov - target) < 0.3) this.camera.fov = target;
+    this.camera.updateProjectionMatrix();
   }
 
   /** Luz ambiental y reflejos a partir de una foto HDR de cielo nocturno (Poly Haven, CC0). */
@@ -155,12 +181,14 @@ export class World {
   // ---------- Disparos ----------
 
   /** Disparo propio: fogonazo, casquillo, trazadora e impacto. */
-  localShot(hit: THREE.Vector3, normal: THREE.Vector3, kind: string | null, feetY: number) {
-    this.weapon.fire();
+  localShot(hits: { point: THREE.Vector3; normal: THREE.Vector3; kind: string | null }[], feetY: number) {
+    this.weapon.fire(hits.length);
     this.camera.updateMatrixWorld(true);
     const from = this.weapon.muzzleWorld();
-    this.tracer(from, hit, 0xffe2a8);
-    this.effects.impact(hit, normal, kind);
+    for (const h of hits) {
+      this.tracer(from, h.point, 0xffe2a8);
+      this.effects.impact(h.point, h.normal, h.kind);
+    }
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
     this.effects.ejectShell(this.weapon.ejectorWorld(), right, up, feetY);
@@ -220,7 +248,7 @@ export class World {
     }
   }
 
-  render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean }) {
+  render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean; aiming: boolean }) {
     this.time += dt;
     this.env.update(dt, this.time, this.camera.position);
     if (this.map.dome) this.map.dome.rotation.y += dt * 0.02;

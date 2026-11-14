@@ -82,6 +82,20 @@ export const sfx = {
     tone(220, 0.08, 0.3, "sine", 70);
     noise(0.35, "bandpass", 700, 0.08, 1.2, 0.6, 0.02);
   },
+  /** Escopeta: estampido grave y largo. */
+  shotgun: () => {
+    noise(0.07, "highpass", 1800, 0.5, 3);
+    noise(0.3, "lowpass", 1100, 0.7, 2.2);
+    tone(90, 0.22, 0.55, "sine", 38);
+    noise(0.8, "bandpass", 300, 0.15, 1.1, 0.5, 0.04);
+  },
+  /** Francotirador: chasquido seco con mucho eco. */
+  sniper: () => {
+    noise(0.05, "highpass", 3500, 0.6, 3);
+    noise(0.2, "lowpass", 2200, 0.6, 2.5);
+    tone(120, 0.18, 0.5, "sine", 40);
+    noise(1.4, "bandpass", 420, 0.16, 1, 0.5, 0.08);
+  },
   switchWeapon: () => { noise(0.05, "bandpass", 1800, 0.18, 2, 3); noise(0.04, "bandpass", 2600, 0.15, 2, 4, 0.12); },
   remoteShot: (volume: number) => {
     noise(0.16, "lowpass", 900 + volume * 1200, 0.4 * volume, 2.5);

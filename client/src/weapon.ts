@@ -216,8 +216,7 @@ export class ShotEffects {
 /** Arma en primera persona: balanceo al caminar, inercia, retroceso, recarga, cambio de arma y fogonazo. */
 export class ViewWeapon {
   readonly root = new THREE.Group(); // colgado de la cámara
-  private rifle: ReturnType<typeof buildKestrel>;
-  private pistol: { group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D } | null = null;
+  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number } | null)[] = [null, null];
   private current = 0;
   private flash: THREE.Group;
   private flashLight: THREE.PointLight;
@@ -227,16 +226,9 @@ export class ViewWeapon {
   private sway = new THREE.Vector2();
   private reloadT = 0;
   private switchT = 0;
-  private readonly rifleBase = new THREE.Vector3(0.15, -0.165, -0.36);
-  private readonly pistolBase = new THREE.Vector3(0.13, -0.15, -0.33);
+  private aimT = 0;
 
   constructor() {
-    this.rifle = buildKestrel();
-    this.rifle.group.scale.setScalar(0.82);
-    this.rifle.group.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
-    this.root.add(this.rifle.group);
-    this.root.position.copy(this.rifleBase);
-
     // Fogonazo: tres planos cruzados con brillo aditivo
     this.flash = new THREE.Group();
     const mat = new THREE.MeshBasicMaterial({ map: flashSprite(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
@@ -248,93 +240,98 @@ export class ViewWeapon {
     p3.rotation.set(Math.PI / 2, 0, Math.PI / 2);
     this.flash.add(p1, p2, p3);
     this.flash.visible = false;
-    this.rifle.muzzle.add(this.flash);
     this.flashLight = new THREE.PointLight(0xffb05a, 0, 6, 2);
-    this.rifle.muzzle.add(this.flashLight);
   }
 
-  /** Pistola (modelo de Poly Haven). El cañón del modelo apunta a +X: lo giramos hacia -Z. */
-  setPistolModel(model: THREE.Object3D) {
+  /**
+   * Coloca un modelo de arma (normalizado: cañón hacia -Z, centrado, tamaño real) en una ranura.
+   * La posición se calcula con su tamaño para que cualquier arma quede bien encuadrada.
+   */
+  setSlotModel(slot: number, model: THREE.Object3D, anchors: { size: THREE.Vector3; box: THREE.Box3; muzzle: THREE.Vector3; ejector: THREE.Vector3 }) {
+    const old = this.slots[slot];
+    if (old) this.root.remove(old.group);
+    model.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
     const group = new THREE.Group();
-    model.rotation.y = Math.PI / 2;
-    model.scale.setScalar(0.95);
     group.add(model);
-    const box = new THREE.Box3().setFromObject(group);
     const muzzle = new THREE.Object3D();
-    muzzle.position.set(0, box.min.y + (box.max.y - box.min.y) * 0.78, box.min.z - 0.01);
+    muzzle.position.copy(anchors.muzzle);
     const ejector = new THREE.Object3D();
-    ejector.position.set(0.012, box.max.y - 0.02, box.min.z + 0.12);
+    ejector.position.copy(anchors.ejector);
     group.add(muzzle, ejector);
-    group.visible = false;
+    const len = anchors.size.z;
+    const pistol = len < 0.4;
+    // La parte trasera del arma queda a ~10 cm de la cámara; las largas se ven más a la derecha
+    const base = new THREE.Vector3(pistol ? 0.12 : 0.15, -0.085 - anchors.box.max.y - (pistol ? 0.03 : 0), -(0.1 + len / 2));
+    group.visible = slot === this.current;
     this.root.add(group);
-    this.pistol = { group, muzzle, ejector };
-    this.applyWeapon();
+    this.slots[slot] = { group, muzzle, ejector, base, kick: pistol ? 0.14 : len > 1.05 ? 0.1 : 0.06 };
+    if (slot === this.current) this.attachFlash();
   }
 
-  private active() { return this.current === 1 && this.pistol ? this.pistol : this.rifle; }
+  private active() { return this.slots[this.current] ?? this.slots[0] ?? this.slots[1]; }
 
-  private applyWeapon() {
-    const usePistol = this.current === 1 && !!this.pistol;
-    this.rifle.group.visible = !usePistol;
-    if (this.pistol) this.pistol.group.visible = usePistol;
-    const muzzle = this.active().muzzle;
-    muzzle.add(this.flash);
-    muzzle.add(this.flashLight);
-    this.flash.scale.setScalar(usePistol ? 0.7 : 1);
+  private attachFlash() {
+    const a = this.active();
+    if (!a) return;
+    a.muzzle.add(this.flash);
+    a.muzzle.add(this.flashLight);
   }
 
   setWeapon(index: number) {
     if (index === this.current) return;
     this.current = index;
     this.switchT = 1; // el arma sube desde abajo
-    this.applyWeapon();
+    this.slots.forEach((s, i) => { if (s) s.group.visible = i === index; });
+    this.attachFlash();
   }
 
-  muzzleWorld(): THREE.Vector3 { return this.active().muzzle.getWorldPosition(new THREE.Vector3()); }
-  ejectorWorld(): THREE.Vector3 { return this.active().ejector.getWorldPosition(new THREE.Vector3()); }
+  muzzleWorld(): THREE.Vector3 {
+    const a = this.active();
+    return a ? a.muzzle.getWorldPosition(new THREE.Vector3()) : this.root.getWorldPosition(new THREE.Vector3());
+  }
+  ejectorWorld(): THREE.Vector3 {
+    const a = this.active();
+    return a ? a.ejector.getWorldPosition(new THREE.Vector3()) : this.root.getWorldPosition(new THREE.Vector3());
+  }
 
-  fire() {
+  fire(pellets = 1) {
     this.recoil = 1;
     this.flashTime = 0.05;
     this.flash.visible = true;
     this.flash.rotation.z = Math.random() * Math.PI;
-    this.flash.scale.multiplyScalar(0.8 + Math.random() * 0.5);
-    this.flashLight.intensity = this.current === 1 ? 18 : 25;
+    this.flash.scale.setScalar((pellets > 1 ? 1.4 : 1) * (0.8 + Math.random() * 0.5));
+    this.flashLight.intensity = pellets > 1 ? 35 : 25;
   }
 
-  update(dt: number, opts: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; visible: boolean }) {
-    this.root.visible = opts.visible;
-    const base = this.current === 1 && this.pistol ? this.pistolBase : this.rifleBase;
-    // Balanceo al caminar
+  update(dt: number, opts: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; visible: boolean; aiming: boolean }) {
+    const a = this.active();
+    // Con la mira telescópica el arma se aparta (se ve la mira a pantalla completa)
+    this.aimT += ((opts.aiming ? 1 : 0) - this.aimT) * Math.min(1, dt * 14);
+    this.root.visible = opts.visible && this.aimT < 0.9;
+    if (!a) return;
     const moving = opts.onGround ? Math.min(1, opts.speed / 7) : 0;
     this.bobT += dt * (6 + moving * 5) * (moving > 0.05 ? 1 : 0.2);
     const bobX = Math.sin(this.bobT) * 0.012 * moving;
     const bobY = Math.abs(Math.cos(this.bobT)) * 0.012 * moving;
-    // Inercia al girar la vista
     this.sway.x += (-opts.lookDX * 0.02 - this.sway.x) * Math.min(1, dt * 10);
     this.sway.y += (opts.lookDY * 0.02 - this.sway.y) * Math.min(1, dt * 10);
     this.sway.clampScalar(-0.03, 0.03);
-    // Recarga: el arma baja y gira
     this.reloadT += ((opts.reloading ? 1 : 0) - this.reloadT) * Math.min(1, dt * 8);
-    // Cambio de arma
     this.switchT = Math.max(0, this.switchT - dt * 2.8);
-    // Retroceso (la pistola sube más)
     this.recoil = Math.max(0, this.recoil - dt * 9);
     const k = this.recoil;
-    const kick = this.current === 1 ? 0.14 : 0.06;
+    const b = a.base;
     this.root.position.set(
-      base.x + bobX + this.sway.x,
-      base.y - bobY + this.sway.y - this.reloadT * 0.12 - this.switchT * 0.25 + (opts.onGround ? 0 : -0.015),
-      base.z + k * 0.045,
+      b.x * (1 - this.aimT) + bobX + this.sway.x,
+      b.y - bobY + this.sway.y - this.reloadT * 0.12 - this.switchT * 0.25 - this.aimT * 0.1 + (opts.onGround ? 0 : -0.015),
+      b.z + k * 0.045,
     );
-    this.root.rotation.set(k * kick + this.reloadT * -0.6 - this.switchT * 0.8, this.sway.x * 1.5, this.reloadT * 0.5 + bobX * 2);
+    this.root.rotation.set(k * a.kick + this.reloadT * -0.6 - this.switchT * 0.8, this.sway.x * 1.5, this.reloadT * 0.5 + bobX * 2);
 
     this.flashTime -= dt;
     if (this.flashTime <= 0) {
       this.flash.visible = false;
       this.flashLight.intensity = 0;
-      this.flash.scale.setScalar(this.current === 1 ? 0.7 : 1);
     }
-    this.rifle.reticle.visible = this.reloadT < 0.3;
   }
 }

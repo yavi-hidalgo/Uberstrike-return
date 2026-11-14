@@ -32,12 +32,13 @@ canvas#game { display: block; width: 100vw; height: 100vh; }
 .card h1 span { display: block; color: var(--accent); }
 #join-form { display: grid; gap: 8px; }
 #join-form label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-top: 6px; }
-#name, #quality {
+#name, #quality, #primary, #secondary {
   font: 500 19px var(--font); padding: 11px 14px; border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(0, 0, 0, 0.45); color: var(--text);
 }
-#quality { font-size: 16px; }
-#name:focus, #quality:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+#quality, #primary, #secondary { font-size: 16px; }
+.weapon-info { font-size: 13px; color: var(--muted); min-height: 1.3em; letter-spacing: 0.3px; }
+#name:focus, #quality:focus, #primary:focus, #secondary:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 #join-btn {
   margin-top: 10px; font: 800 22px var(--font); letter-spacing: 4px; text-transform: uppercase;
   padding: 13px; border: 0; border-radius: 6px; cursor: pointer; color: #1d1205;
@@ -55,6 +56,18 @@ kbd {
 /* ---------- HUD ---------- */
 #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
 
+#scope {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at center, transparent 0, transparent min(34vh, 34vw), #000 calc(min(34vh, 34vw) + 2px));
+}
+#scope .scope-ring {
+  position: absolute; left: 50%; top: 50%; width: min(68vh, 68vw); aspect-ratio: 1; transform: translate(-50%, -50%);
+  border-radius: 50%; box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
+  background:
+    linear-gradient(transparent calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
+#scope:not(.hidden) ~ #crosshair { display: none; }
 #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 #crosshair i { position: absolute; background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 2px rgba(0, 0, 0, 0.9); }
 #crosshair i:nth-child(1) { width: 2px; height: 7px; left: -1px; top: -13px; }

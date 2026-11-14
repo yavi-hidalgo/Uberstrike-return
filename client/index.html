@@ -10,6 +10,7 @@
     <canvas id="game"></canvas>
 
     <div id="hud" class="hidden">
+      <div id="scope" class="hidden" aria-hidden="true"><div class="scope-ring"></div></div>
       <div id="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
       <div id="hitmarker" aria-hidden="true"></div>
       <div id="damage-flash" aria-hidden="true"></div>
@@ -35,7 +36,7 @@
       <div id="bottom-right">
         <div class="ammo-line"><span id="ammo">30</span><span id="ammo-max">/ 30</span></div>
         <div class="weapon-name" id="weapon-name">KESTREL AR-7</div>
-        <div class="slots"><span id="slot-1" class="active">1 RIFLE</span><span id="slot-2">2 PISTOLA</span></div>
+        <div class="slots"><span id="slot-1" class="active">1 PRINCIPAL</span><span id="slot-2">2 PISTOLA</span></div>
         <div id="reload" class="hidden">RECARGANDO</div>
       </div>
 
@@ -67,12 +68,18 @@
             <option value="medium">Media: sombras y brillo</option>
             <option value="high">Alta: sombras suaves y antialiasing</option>
           </select>
+          <label for="primary">Arma principal</label>
+          <select id="primary"></select>
+          <div class="weapon-info" id="primary-info"></div>
+          <label for="secondary">Pistola</label>
+          <select id="secondary"></select>
+          <div class="weapon-info" id="secondary-info"></div>
           <button type="submit" id="join-btn">Jugar</button>
           <div id="menu-error" role="alert"></div>
         </form>
         <div class="controls">
           <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse · <kbd>Espacio</kbd> saltar</div>
-          <div><kbd>Clic</kbd> disparar · <kbd>R</kbd> recargar · <kbd>1</kbd><kbd>2</kbd> cambiar arma</div>
+          <div><kbd>Clic</kbd> disparar · <kbd>Clic der.</kbd> mira · <kbd>R</kbd> recargar · <kbd>1</kbd><kbd>2</kbd> arma</div>
           <div><kbd>Tab</kbd> marcador · <kbd>Esc</kbd> soltar ratón</div>
         </div>
       </div>
