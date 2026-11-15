@@ -73,12 +73,13 @@ Para jugar con alguien de tu misma red Wi-Fi, comparte la dirección "Network" q
 | Tecla | Acción |
 |---|---|
 | `W` `A` `S` `D` | moverse |
-| Ratón | apuntar |
+| `Shift` | correr (solo hacia delante; no se puede disparar corriendo) |
+| Ratón | mirar |
 | Clic izquierdo | disparar |
 | `Espacio` | saltar |
 | `R` | recargar |
 | `1` / `2` | arma principal / pistola |
-| Clic derecho | apuntar con mira (francotiradores) |
+| Clic derecho | apuntar: más precisión y zoom, pero se camina más lento (los francotiradores usan mira telescópica) |
 | `Tab` | ver el marcador |
 | `Esc` | soltar el ratón |
 

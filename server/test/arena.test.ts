@@ -270,3 +270,58 @@ test("mapas: cada mapa tiene su propia partida", async () => {
   assert.equal(r.map.id, "station");
   await f.leave(); await s2.leave();
 });
+
+test("el daño baja con la distancia según el arma, y las de energía casi no lo pierden", async () => {
+  const { damageFalloff, weaponStats, effectiveSpread } = await import("../../shared/src/weapons");
+  const rifle = weaponStats("f32fe06215"), smg = weaponStats("c503d96157"), shotgun = weaponStats("6db0ad4764");
+  const sniper = weaponStats("cdefd833b4"), energy = weaponStats("1b91aca44b");
+  assert.equal(damageFalloff(rifle, 10), 1);
+  assert.ok(damageFalloff(smg, 40) < damageFalloff(rifle, 40), "el subfusil pierde daño antes que el rifle");
+  assert.ok(damageFalloff(shotgun, 30) < 0.3, "la escopeta casi no hace daño de lejos");
+  assert.equal(damageFalloff(sniper, 200), 1);
+  assert.ok(energy.energy && damageFalloff(energy, 110) >= 0.9, "las armas de energía mantienen el daño");
+  // Apuntar cierra la mira; correr y disparar en ráfaga la abren
+  const still = { aiming: false, bloom: 0, speed: 0, onGround: true };
+  assert.ok(effectiveSpread(rifle, { ...still, aiming: true }) < effectiveSpread(rifle, still));
+  assert.ok(effectiveSpread(rifle, { ...still, speed: 8.8 }) > effectiveSpread(rifle, still));
+  assert.ok(effectiveSpread(rifle, { ...still, bloom: 1 }) > effectiveSpread(rifle, still) * 2);
+  assert.ok(effectiveSpread(sniper, still) > effectiveSpread(sniper, { ...still, aiming: true }) * 20, "sin mira el francotirador es impreciso");
+});
+
+test("movimiento: aceleración, correr y apuntar", async () => {
+  const { stepMove } = await import("../../shared/src/physics");
+  const { DT, KEY, MOVE_SPEED, SPRINT_SPEED } = await import("../../shared/src/constants");
+  const run = (keys: number, ticks: number) => {
+    const s = { x: 0, y: 0, z: 0, vy: 0, onGround: true, vx: 0, vz: 0 };
+    for (let i = 0; i < ticks; i++) stepMove(s, keys, 0, DT, []);
+    return s;
+  };
+  // El primer tick no alcanza la velocidad máxima (hay aceleración), pero enseguida sí
+  assert.ok(Math.hypot(run(KEY.FORWARD, 1).vx!, run(KEY.FORWARD, 1).vz!) < MOVE_SPEED);
+  assert.ok(Math.abs(Math.hypot(run(KEY.FORWARD, 15).vx!, run(KEY.FORWARD, 15).vz!) - MOVE_SPEED) < 0.01);
+  assert.ok(Math.abs(Math.hypot(run(KEY.FORWARD | KEY.SPRINT, 15).vx!, run(KEY.FORWARD | KEY.SPRINT, 15).vz!) - SPRINT_SPEED) < 0.01);
+  // No se corre hacia atrás, disparando ni apuntando
+  assert.ok(Math.hypot(run(KEY.BACK | KEY.SPRINT, 15).vx!, run(KEY.BACK | KEY.SPRINT, 15).vz!) <= MOVE_SPEED + 0.01);
+  assert.ok(Math.hypot(run(KEY.FORWARD | KEY.SPRINT | KEY.FIRE, 15).vx!, run(KEY.FORWARD | KEY.SPRINT | KEY.FIRE, 15).vz!) <= MOVE_SPEED + 0.01);
+  assert.ok(Math.hypot(run(KEY.FORWARD | KEY.AIM, 15).vx!, run(KEY.FORWARD | KEY.AIM, 15).vz!) < MOVE_SPEED);
+  // Al soltar las teclas se frena del todo en pocos ticks
+  const s = run(KEY.FORWARD, 15);
+  for (let i = 0; i < 6; i++) stepMove(s, 0, 0, DT, []);
+  assert.equal(Math.hypot(s.vx!, s.vz!), 0);
+});
+
+test("contenedores abiertos: se entra por la hoja abierta y el fondo detiene las balas", async () => {
+  const { MAPS } = await import("../../shared/src/maps");
+  const { stepMove, rayMap } = await import("../../shared/src/physics");
+  const { DT, KEY } = await import("../../shared/src/constants");
+  const m = MAPS.factory;
+  // contenedor a ras del suelo con la puerta hacia el pasillo (fila 0, giro 0: puerta en -z, mitad +x)
+  const c = m.expansion!.pieces.find((p) => p.kind === "containerOpen" && p.y === 0 && p.rot === 0 && Math.abs(((p.z - p.d / 2) - -33)) < 0.01)!;
+  assert.ok(c, "hay un contenedor abierto al pasillo");
+  const s = { x: c.x + 0.6, y: 0, z: c.z - c.d / 2 - 2.5, vy: 0, onGround: true };
+  for (let i = 0; i < 90; i++) stepMove(s, KEY.FORWARD, Math.PI, DT, m.boxes); // yaw PI = hacia +z
+  assert.ok(Math.abs(s.x - c.x) < 1.1 && Math.abs(s.z - c.z) < c.d / 2 && s.y > 0.1, "el jugador quedó dentro");
+  // desde dentro, un disparo hacia el fondo choca con la pared trasera
+  const t = rayMap(s.x, s.y + 1.6, s.z, 0, 0, 1, 50, m.boxes);
+  assert.ok(Math.abs((s.z + t) - (c.z + c.d / 2 - 0.14)) < 0.05);
+});

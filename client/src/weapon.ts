@@ -109,7 +109,7 @@ export function buildKestrel(): { group: THREE.Group; muzzle: THREE.Object3D; ej
 }
 
 interface Shell { mesh: THREE.Mesh; vel: THREE.Vector3; spin: THREE.Vector3; life: number; floor: number }
-interface Particle { sprite: THREE.Sprite; vel: THREE.Vector3; life: number; max: number; grow: number; gravity: number }
+interface Particle { sprite: THREE.Sprite; vel: THREE.Vector3; life: number; max: number; grow: number; gravity: number; opacity: number }
 
 /** Efectos de disparo en el mundo: casquillos, agujeros de bala, chispas y polvo. */
 export class ShotEffects {
@@ -122,6 +122,9 @@ export class ShotEffects {
   private holeMat: THREE.MeshBasicMaterial;
   private sparkMat: THREE.SpriteMaterial;
   private dustTex = softSprite("rgba(255,255,255,0.8)");
+  private colorSparks = new Map<number, THREE.SpriteMaterial>();
+  /** Materiales compartidos entre partículas: no se desvanecen ni se liberan una a una. */
+  private shared = new Set<THREE.Material>();
 
   constructor(private scene: THREE.Scene, private maxDecals = 60) {
     this.holeMat = new THREE.MeshBasicMaterial({
@@ -129,6 +132,7 @@ export class ShotEffects {
       polygonOffset: true, polygonOffsetFactor: -4,
     });
     this.sparkMat = new THREE.SpriteMaterial({ map: softSprite("rgba(255,220,150,1)"), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+    this.shared.add(this.sparkMat);
   }
 
   ejectShell(pos: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3, floor: number) {
@@ -146,8 +150,26 @@ export class ShotEffects {
     this.shells.splice(i, 1);
   }
 
-  impact(point: THREE.Vector3, normal: THREE.Vector3, kind: string | null) {
-    // Agujero de bala (no en la nieve del suelo ni en personajes)
+  /** Chispas de un color dado (material compartido por color). */
+  private sparksOf(color: number): THREE.SpriteMaterial {
+    let m = this.colorSparks.get(color);
+    if (!m) {
+      const c = new THREE.Color(color);
+      m = new THREE.SpriteMaterial({ map: softSprite(`rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},1)`), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+      this.colorSparks.set(color, m);
+      this.shared.add(m);
+    }
+    return m;
+  }
+
+  /**
+   * Impacto en el escenario. Depende del arma: las balas dejan agujero, chispas y polvo (más grande
+   * cuanto más potente el arma); las de energía dejan una quemadura que brilla y chispas de su color.
+   */
+  impact(point: THREE.Vector3, normal: THREE.Vector3, kind: string | null, fx?: { energy: boolean; color: number; impact: number }) {
+    const k = fx?.impact ?? 1;
+    const energy = !!fx?.energy;
+    // Marca en la superficie (no en el suelo abierto ni en personajes)
     if (kind && kind !== "ground" && kind !== "player") {
       let d = this.decals[this.decalIdx];
       if (!d) {
@@ -158,30 +180,70 @@ export class ShotEffects {
       d.position.copy(point).addScaledVector(normal, 0.004);
       d.lookAt(point.clone().add(normal));
       d.rotateZ(Math.random() * Math.PI * 2);
+      d.scale.setScalar((energy ? 1.8 : 1) * (0.7 + 0.5 * k));
       this.decalIdx = (this.decalIdx + 1) % this.maxDecals;
     }
-    // Chispas en metal, polvo en hormigón/roca, nieve en el suelo
+    if (energy) {
+      // Resplandor que se apaga y chispas del color del arma
+      const glow = new THREE.SpriteMaterial({ map: this.dustTex, color: fx!.color, transparent: true, depthWrite: false, opacity: 0.9, blending: THREE.AdditiveBlending });
+      this.spawn(glow, point.clone().addScaledVector(normal, 0.03), new THREE.Vector3(), 0.35 + 0.15 * k, 0.5 * k, -1.5, 0, 0.9);
+      const mat = this.sparksOf(fx!.color);
+      for (let i = 0; i < Math.round(7 * k); i++) {
+        const v = normal.clone().multiplyScalar(1.5 + Math.random() * 3)
+          .add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).multiplyScalar(5));
+        this.spawn(mat, point, v, 0.18 + Math.random() * 0.2, 0.07, 0, 5);
+      }
+      return;
+    }
+    // Chispas en metal, polvo en hormigón/roca
     const isMetal = kind === "metal";
-    const sparks = isMetal ? 10 : 4;
+    const sparks = Math.round((isMetal ? 10 : 4) * Math.min(2, k));
     for (let i = 0; i < sparks; i++) {
       const v = normal.clone().multiplyScalar(2 + Math.random() * 3)
         .add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.2, Math.random() - 0.5).multiplyScalar(4));
       this.spawn(this.sparkMat, point, v, 0.12 + Math.random() * 0.15, 0.06, 0, 9);
     }
-    const dustColor = kind === "ground" ? 0xe8eef8 : kind === "wood" || kind === "crate" ? 0x8a6a48 : 0xb8b4ac;
+    const dustColor = kind === "ground" ? 0xb9b2a6 : kind === "wood" || kind === "crate" ? 0x8a6a48 : 0xb8b4ac;
     const dust = new THREE.SpriteMaterial({ map: this.dustTex, color: dustColor, transparent: true, depthWrite: false, opacity: 0.55 });
-    for (let i = 0; i < 3; i++) {
-      const v = normal.clone().multiplyScalar(0.6 + Math.random()).add(new THREE.Vector3((Math.random() - 0.5) * 0.6, 0.3, (Math.random() - 0.5) * 0.6));
-      this.spawn(dust, point, v, 0.5 + Math.random() * 0.4, 0.18, 0.9, 0.6);
+    for (let i = 0; i < Math.round(3 * k); i++) {
+      const v = normal.clone().multiplyScalar((0.6 + Math.random()) * Math.sqrt(k)).add(new THREE.Vector3((Math.random() - 0.5) * 0.6, 0.3, (Math.random() - 0.5) * 0.6));
+      this.spawn(dust, point, v, 0.5 + Math.random() * 0.4 * k, 0.18 * Math.sqrt(k), 0.9, 0.6);
     }
   }
 
-  private spawn(mat: THREE.SpriteMaterial, pos: THREE.Vector3, vel: THREE.Vector3, life: number, size: number, grow: number, gravity: number) {
+  /** Humo que sale del cañón después de un disparo potente. */
+  muzzleSmoke(pos: THREE.Vector3, dir: THREE.Vector3, count: number) {
+    for (let i = 0; i < count; i++) {
+      const smoke = new THREE.SpriteMaterial({ map: this.dustTex, color: 0xcfd2d6, transparent: true, depthWrite: false, opacity: 0.4 });
+      const v = dir.clone().multiplyScalar(1.5 + Math.random() * 2.5).add(new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.25 + Math.random() * 0.3, (Math.random() - 0.5) * 0.5));
+      this.spawn(smoke, pos, v, 0.7 + Math.random() * 0.5, 0.12, 1.8, -0.2, 0.4);
+    }
+  }
+
+  /** Salpicadura al acertarle a un jugador. */
+  bodyHit(point: THREE.Vector3, headshot: boolean) {
+    const mat = new THREE.SpriteMaterial({ map: this.dustTex, color: headshot ? 0xff5a4a : 0xb02a22, transparent: true, depthWrite: false, opacity: 0.8 });
+    for (let i = 0; i < (headshot ? 7 : 4); i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(2.2);
+      this.spawn(mat.clone(), point, v, 0.3 + Math.random() * 0.2, 0.1, 1.2, 5, 0.8);
+    }
+    mat.dispose();
+  }
+
+  private spawn(mat: THREE.SpriteMaterial, pos: THREE.Vector3, vel: THREE.Vector3, life: number, size: number, grow: number, gravity: number, opacity = 0.55) {
     const s = new THREE.Sprite(mat);
     s.position.copy(pos);
     s.scale.setScalar(size);
     this.scene.add(s);
-    this.particles.push({ sprite: s, vel, life, max: life, grow, gravity });
+    this.particles.push({ sprite: s, vel, life, max: life, grow, gravity, opacity });
+    if (this.particles.length > 260) this.kill(0);
+  }
+
+  private kill(i: number) {
+    const p = this.particles[i];
+    this.scene.remove(p.sprite);
+    if (!this.shared.has(p.sprite.material)) p.sprite.material.dispose();
+    this.particles.splice(i, 1);
   }
 
   update(dt: number) {
@@ -204,12 +266,8 @@ export class ShotEffects {
       p.sprite.position.addScaledVector(p.vel, dt);
       p.sprite.scale.multiplyScalar(1 + p.grow * dt);
       const mat = p.sprite.material;
-      if (mat !== this.sparkMat) mat.opacity = 0.55 * (p.life / p.max);
-      if (p.life <= 0) {
-        this.scene.remove(p.sprite);
-        if (mat !== this.sparkMat) mat.dispose();
-        this.particles.splice(i, 1);
-      }
+      if (!this.shared.has(mat)) mat.opacity = p.opacity * Math.max(0, p.life / p.max);
+      if (p.life <= 0) this.kill(i);
     }
   }
 }
@@ -222,7 +280,10 @@ export class ViewWeapon {
   private current = 0;
   private flash: THREE.Group;
   private flashLight: THREE.PointLight;
+  private flashMat!: THREE.MeshBasicMaterial;
   private flashTime = 0;
+  private adsT = 0;
+  private sprintT = 0;
   private recoil = 0;
   private bobT = 0;
   private sway = new THREE.Vector2();
@@ -240,6 +301,7 @@ export class ViewWeapon {
     p2.position.z = -0.08;
     const p3 = p2.clone();
     p3.rotation.set(Math.PI / 2, 0, Math.PI / 2);
+    this.flashMat = mat;
     this.flash.add(p1, p2, p3);
     this.flash.visible = false;
     this.flashLight = new THREE.PointLight(0xffb05a, 0, 6, 2);
@@ -312,17 +374,20 @@ export class ViewWeapon {
     return a ? a.ejector.getWorldPosition(new THREE.Vector3()) : this.root.getWorldPosition(new THREE.Vector3());
   }
 
-  fire(pellets = 1) {
+  /** Fogonazo y golpe del arma, según su perfil de efectos. */
+  fire(fx: { flashSize: number; flashLight: number; flashTime: number; color: number; kick: number; energy: boolean }) {
     this.active()?.arms?.fire();
-    this.recoil = 1;
-    this.flashTime = 0.05;
+    this.recoil = Math.min(2.2, fx.kick);
+    this.flashTime = fx.flashTime;
     this.flash.visible = true;
     this.flash.rotation.z = Math.random() * Math.PI;
-    this.flash.scale.setScalar((pellets > 1 ? 1.4 : 1) * (0.8 + Math.random() * 0.5));
-    this.flashLight.intensity = pellets > 1 ? 35 : 25;
+    this.flash.scale.setScalar(fx.flashSize * (0.8 + Math.random() * 0.5));
+    this.flashMat.color.set(fx.energy ? fx.color : 0xffffff);
+    this.flashLight.color.set(fx.energy ? fx.color : 0xffb05a);
+    this.flashLight.intensity = fx.flashLight;
   }
 
-  update(dt: number, opts: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; visible: boolean; aiming: boolean; reloadSeconds?: number }) {
+  update(dt: number, opts: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; visible: boolean; aiming: boolean; ads?: boolean; sprinting?: boolean; reloadSeconds?: number }) {
     const a = this.active();
     if (a?.arms) {
       if (opts.reloading && !this.wasReloading) a.arms.reload(opts.reloadSeconds ?? 1.5);
@@ -332,10 +397,13 @@ export class ViewWeapon {
     // Con la mira telescópica el arma se aparta (se ve la mira a pantalla completa)
     this.aimT += ((opts.aiming ? 1 : 0) - this.aimT) * Math.min(1, dt * 14);
     this.root.visible = opts.visible && this.aimT < 0.9;
+    // Apuntar sin mira telescópica: el arma se centra y se acerca; al correr se baja y se cruza
+    this.adsT += ((opts.ads ? 1 : 0) - this.adsT) * Math.min(1, dt * 12);
+    this.sprintT += ((opts.sprinting ? 1 : 0) - this.sprintT) * Math.min(1, dt * 8);
     if (!a) return;
     const moving = opts.onGround ? Math.min(1, opts.speed / 7) : 0;
     this.bobT += dt * (6 + moving * 5) * (moving > 0.05 ? 1 : 0.2);
-    const bobAmp = a.arms ? 0.004 : 0.012;
+    const bobAmp = (a.arms ? 0.004 : 0.012) * (1 - this.adsT * 0.75) * (1 + this.sprintT * 0.8);
     const bobX = Math.sin(this.bobT) * bobAmp * moving;
     const bobY = Math.abs(Math.cos(this.bobT)) * bobAmp * moving;
     this.sway.x += (-opts.lookDX * 0.02 - this.sway.x) * Math.min(1, dt * 10);
@@ -347,16 +415,17 @@ export class ViewWeapon {
     this.recoil = Math.max(0, this.recoil - dt * 9);
     const k = this.recoil;
     const b = a.base;
+    const ads = a.arms ? 0 : this.adsT, run = a.arms ? 0 : this.sprintT;
     this.root.position.set(
-      b.x * (1 - this.aimT) + bobX + this.sway.x,
-      b.y - bobY + this.sway.y - this.reloadT * 0.12 - this.switchT * 0.25 - this.aimT * 0.1 + (opts.onGround ? 0 : -0.015),
-      b.z + k * 0.045,
+      b.x * (1 - this.aimT) * (1 - ads * 0.92) + bobX + this.sway.x + run * 0.03,
+      b.y - bobY + this.sway.y - this.reloadT * 0.12 - this.switchT * 0.25 - this.aimT * 0.1 + (opts.onGround ? 0 : -0.015) + ads * 0.022 - run * 0.05,
+      b.z + Math.min(1.4, k) * 0.045 + ads * 0.05,
     );
-    const aimK = 1 - this.aimT;
+    const aimK = (1 - this.aimT) * (1 - ads * 0.9);
     this.root.rotation.set(
-      k * a.kick + this.reloadT * -0.6 - this.switchT * 0.8 + (a.pitch ?? 0) * aimK,
-      this.sway.x * 1.5 + (a.yaw ?? 0) * aimK,
-      this.reloadT * 0.5 + bobX * 2 + (a.roll ?? 0) * aimK,
+      k * a.kick * (1 - ads * 0.4) + this.reloadT * -0.6 - this.switchT * 0.8 + (a.pitch ?? 0) * aimK - run * 0.18,
+      this.sway.x * 1.5 + (a.yaw ?? 0) * aimK + run * 0.5,
+      this.reloadT * 0.5 + bobX * 2 + (a.roll ?? 0) * aimK - run * 0.25,
     );
 
     this.flashTime -= dt;

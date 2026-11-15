@@ -6,7 +6,7 @@ import {
   SWITCH_TICKS, VISIBILITY_GRACE_MS,
 } from "../../shared/src/constants";
 import { mapById, type MapDef } from "../../shared/src/maps";
-import { validLoadout, weaponStats, type WeaponStats } from "../../shared/src/weapons";
+import { BLOOM_RECOVERY, damageFalloff, effectiveSpread, validLoadout, weaponStats, type WeaponStats } from "../../shared/src/weapons";
 import {
   aimDirection, hitboxes, lineOfSight, rayBox, rayMap, stepMove,
   type InputCmd, type MoveState,
@@ -40,6 +40,8 @@ class Player {
   fireCooldown = 0;
   switchTicks = 0;
   prevFire = false;
+  /** Apertura de la mira por disparos seguidos (0..1). */
+  bloom = 0;
 
   queue: InputCmd[] = [];
   lastSeq = 0;
@@ -252,6 +254,7 @@ export class ArenaRoom extends Room {
 
     const w = p.stats[p.weapon];
     if (p.fireCooldown > 0) p.fireCooldown--;
+    p.bloom = Math.max(0, p.bloom - BLOOM_RECOVERY);
     if (p.switchTicks > 0) p.switchTicks--;
     if (p.reloadTicks > 0) {
       p.reloadTicks--;
@@ -275,7 +278,8 @@ export class ArenaRoom extends Room {
     if (trigger && p.fireCooldown === 0 && p.reloadTicks === 0 && p.switchTicks === 0 && p.ammo[p.weapon] > 0) {
       p.ammo[p.weapon]--;
       p.fireCooldown = w.fireIntervalTicks;
-      this.fire(p);
+      this.fire(p, (cmd.keys & KEY.AIM) !== 0);
+      p.bloom = Math.min(1, p.bloom + w.bloom);
       if (p.ammo[p.weapon] === 0) p.reloadTicks = w.reloadTicks;
     }
   }
@@ -289,7 +293,7 @@ export class ArenaRoom extends Room {
     return q.history[0] ?? { tick: this.tick, ...q.move, alive: q.alive };
   }
 
-  private fire(p: Player) {
+  private fire(p: Player, aiming: boolean) {
     const ox = p.move.x, oy = p.move.y + EYE_HEIGHT, oz = p.move.z;
     const [adx, ady, adz] = aimDirection(p.yaw, p.pitch);
     const w = p.stats[p.weapon];
@@ -307,10 +311,12 @@ export class ArenaRoom extends Room {
 
     // Daño acumulado por víctima (una escopeta lanza varios perdigones)
     const damageTo = new Map<Player, { damage: number; headshot: boolean }>();
+    // Dispersión según el arma y la situación: apuntar la cierra; correr, saltar y las ráfagas la abren
+    const spread = effectiveSpread(w, { aiming, bloom: p.bloom, speed: Math.hypot(p.move.vx ?? 0, p.move.vz ?? 0), onGround: p.move.onGround });
     for (let k = 0; k < w.pellets; k++) {
       // Dispersión calculada en el servidor: el cliente no la puede "corregir"
-      const yawJ = (Math.random() * 2 - 1) * w.spread, pitchJ = (Math.random() * 2 - 1) * w.spread;
-      const [dx, dy, dz] = w.spread > 0 ? aimDirection(p.yaw + yawJ, p.pitch + pitchJ) : [adx, ady, adz];
+      const yawJ = (Math.random() * 2 - 1) * spread, pitchJ = (Math.random() * 2 - 1) * spread;
+      const [dx, dy, dz] = spread > 0 ? aimDirection(p.yaw + yawJ, p.pitch + pitchJ) : [adx, ady, adz];
       let best = rayMap(ox, oy, oz, dx, dy, dz, w.range, this.map.boxes);
       let victim: Player | null = null;
       let headshot = false;
@@ -323,7 +329,7 @@ export class ArenaRoom extends Room {
       }
       const from: [number, number, number] = [ox, oy - 0.15, oz];
       const to: [number, number, number] = [ox + dx * best, oy + dy * best, oz + dz * best];
-      const shot: ShotMsg = { id: p.id, from, to };
+      const shot: ShotMsg = { id: p.id, from, to, slot: p.weapon };
       for (const r of this.players.values()) {
         if (r === p) continue; // el tirador dibuja su propia trazadora al instante
         const canSee = (r.lastSeen.get(p.id) ?? 0) > Date.now() - VISIBILITY_GRACE_MS;
@@ -331,17 +337,19 @@ export class ArenaRoom extends Room {
       }
       if (victim) {
         const prev = damageTo.get(victim) ?? { damage: 0, headshot: false };
-        prev.damage += headshot ? w.headshotDamage : w.damage;
+        // El daño baja con la distancia según el tipo de arma
+        prev.damage += (headshot ? w.headshotDamage : w.damage) * damageFalloff(w, best);
         prev.headshot ||= headshot;
         damageTo.set(victim, prev);
       }
     }
 
-    for (const [victim, { damage, headshot }] of damageTo) {
+    for (const [victim, { damage: rawDamage, headshot }] of damageTo) {
       if (!victim.alive) continue;
+      const damage = Math.max(1, Math.round(rawDamage));
       victim.hp = Math.max(0, victim.hp - damage);
       const killed = victim.hp === 0;
-      p.client.send("hit", { damage, headshot, kill: killed } satisfies HitMsg);
+      p.client.send("hit", { victim: victim.id, damage, headshot, kill: killed } satisfies HitMsg);
       victim.client.send("damaged", {
         fromAngle: Math.atan2(p.move.x - victim.move.x, p.move.z - victim.move.z),
       } satisfies DamagedMsg);
@@ -413,6 +421,9 @@ export class ArenaRoom extends Room {
     p.switchTicks = 0;
     p.reloadTicks = 0;
     p.fireCooldown = 0;
+    p.bloom = 0;
+    p.move.vx = 0;
+    p.move.vz = 0;
     p.history = [];
   }
 
@@ -476,6 +487,7 @@ export class ArenaRoom extends Room {
         tick: this.tick,
         you: {
           x: r.move.x, y: r.move.y, z: r.move.z, vy: r.move.vy, g: r.move.onGround,
+          vx: r.move.vx ?? 0, vz: r.move.vz ?? 0,
           yaw: r.yaw,
           seq: r.lastSeq,
           hp: r.hp,

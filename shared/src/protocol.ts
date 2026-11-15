@@ -11,6 +11,7 @@ export interface InputMsg {
 /** Estado propio que el servidor manda a cada jugador. */
 export interface SelfSnapshot {
   x: number; y: number; z: number; vy: number; g: boolean;
+  vx: number; vz: number; // velocidad horizontal (para repetir la predicción)
   yaw: number; // solo lo usa el cliente al reaparecer
   seq: number; // último input procesado
   hp: number;
@@ -60,6 +61,8 @@ export interface ShotMsg {
   id: number;
   from: [number, number, number];
   to: [number, number, number];
+  /** Arma con la que disparó (0 = principal, 1 = pistola): define el efecto visual. */
+  slot: number;
 }
 
 export interface KillMsg {
@@ -69,6 +72,8 @@ export interface KillMsg {
 }
 
 export interface HitMsg {
+  /** A quién le diste (para mostrar el número de daño sobre él). */
+  victim: number;
   damage: number;
   headshot: boolean;
   kill: boolean;

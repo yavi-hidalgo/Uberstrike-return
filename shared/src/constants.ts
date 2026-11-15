@@ -4,7 +4,12 @@
 export const TICK_RATE = 30; // simulaciones por segundo
 export const DT = 1 / TICK_RATE; // segundos por tick
 
-export const MOVE_SPEED = 7.5; // m/s
+export const MOVE_SPEED = 6.4; // m/s caminando
+export const SPRINT_SPEED = 8.8; // m/s corriendo (Shift, solo hacia delante)
+export const AIM_SPEED_K = 0.6; // apuntando se camina más lento
+export const GROUND_ACCEL = 62; // m/s²: arranque casi inmediato, pero no instantáneo
+export const GROUND_FRICTION = 48; // m/s²: frenado al soltar las teclas
+export const AIR_ACCEL = 14; // m/s²: poco control en el aire
 export const JUMP_VELOCITY = 8;
 export const GRAVITY = 24;
 
@@ -49,8 +54,10 @@ export const KEY = {
   RELOAD: 64,
   WEAPON1: 128,
   WEAPON2: 256,
+  SPRINT: 512,
+  AIM: 1024,
 } as const;
-export const KEY_MASK = 511;
+export const KEY_MASK = 2047;
 
 export const MAX_PITCH = 1.5; // ~86 grados
 export const NAME_MAX_LEN = 16;

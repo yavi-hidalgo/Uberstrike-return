@@ -8,7 +8,7 @@ import type { Box, Material } from "./map";
 
 export type PieceKind =
   // patio industrial
-  | "container" | "car" | "barrier" | "barrier2" | "crate" | "milcrate" | "drums" | "tyres" | "trash"
+  | "container" | "containerOpen" | "stepbox" | "curb" | "car" | "barrier" | "barrier2" | "crate" | "milcrate" | "drums" | "tyres" | "trash"
   | "shed" | "dock" | "step" | "gantryLeg" | "gantryBeam" | "lightmast" | "pallet"
   // hangar
   | "hangarFloor" | "hangarWall" | "hangarCeiling" | "column" | "catwalk" | "railing" | "stairs"
@@ -45,6 +45,8 @@ export interface Expansion {
   facades: FacadeRun[];
   /** Zonas de suelo nuevo: [x0, z0, x1, z1, material]. */
   grounds: [number, number, number, number, "asphalt" | "yard" | "hangar"][];
+  /** Rejillas de desagüe sobre las uniones entre suelos distintos: [x0, z0, x1, z1]. */
+  seams: [number, number, number, number][];
   /** Líneas pintadas en el suelo: [x0, z0, x1, z1, ancho, color 0 = blanco, 1 = amarillo]. */
   lines: [number, number, number, number, number, number][];
   /** Muros invisibles que cierran el área de juego. */
@@ -67,22 +69,48 @@ function rng(seed: number) {
 }
 
 const KIND_MATERIAL: Partial<Record<PieceKind, Material>> = {
-  container: "metal", car: "metal", barrier: "concrete", barrier2: "concrete", crate: "wood", milcrate: "wood",
+  container: "metal", containerOpen: "metal", stepbox: "wood", curb: "concrete", car: "metal", barrier: "concrete", barrier2: "concrete", crate: "wood", milcrate: "wood",
   drums: "metal", tyres: "rock", trash: "metal", shed: "metal", dock: "concrete", step: "concrete",
   gantryLeg: "metal", lightmast: "metal", pallet: "wood", hangarWall: "metal", column: "metal", catwalk: "metal",
   railing: "metal", stairs: "metal", dropship: "metal", scicrate: "metal", scicrate2: "metal", forcefield: "invisible",
   corridor: "metal",
 };
 
-/** Caja de colisión de una pieza (en el mundo). */
-export function pieceBox(p: Piece): Box {
-  const sw = p.rot % 2 ? p.d : p.w, sd = p.rot % 2 ? p.w : p.d;
+/** Caja en coordenadas locales de una pieza (x a lo ancho, z a lo largo), llevada al mundo. */
+function localBox(p: Piece, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box {
+  // giro de rot cuartos de vuelta alrededor de Y (igual que makeRotationY en el cliente)
+  const turn = (x: number, z: number): [number, number] =>
+    p.rot % 4 === 0 ? [x, z] : p.rot % 4 === 1 ? [z, -x] : p.rot % 4 === 2 ? [-x, -z] : [-z, x];
+  const [ax, az] = turn(x0, z0), [bx, bz] = turn(x1, z1);
   return {
-    min: [p.x - sw / 2, p.y, p.z - sd / 2],
-    max: [p.x + sw / 2, p.y + p.h, p.z + sd / 2],
+    min: [p.x + Math.min(ax, bx), p.y + y0, p.z + Math.min(az, bz)],
+    max: [p.x + Math.max(ax, bx), p.y + y1, p.z + Math.max(az, bz)],
     kind: KIND_MATERIAL[p.kind] ?? "concrete",
     hidden: true,
   };
+}
+
+/** Cajas de colisión de una pieza (en el mundo). Casi todas son una sola caja. */
+export function pieceBoxes(p: Piece): Box[] {
+  if (p.kind === "containerOpen") {
+    // Contenedor hueco: se puede entrar por la hoja abierta (mitad +x del extremo -z)
+    const w = p.w / 2, d = p.d / 2, t = 0.14;
+    return [
+      localBox(p, -w, 0, -d, -w + t, p.h, d),            // pared izquierda
+      localBox(p, w - t, 0, -d, w, p.h, d),              // pared derecha
+      localBox(p, -w, 0, d - t, w, p.h, d),              // fondo
+      localBox(p, -w, p.h - t, -d, w, p.h, d),           // techo
+      localBox(p, -w, 0, -d, w, 0.16, d),                // piso (se sube como un escalón)
+      localBox(p, -w, 0, -d, 0, p.h, -d + 0.1),          // hoja cerrada
+      localBox(p, w - 0.05, 0, -d - 1.15, w + 0.05, p.h, -d), // hoja abierta
+    ];
+  }
+  return [localBox(p, -p.w / 2, 0, -p.d / 2, p.w / 2, p.h, p.d / 2)];
+}
+
+/** Caja envolvente de una pieza. */
+export function pieceBox(p: Piece): Box {
+  return localBox(p, -p.w / 2, 0, -p.d / 2, p.w / 2, p.h, p.d / 2);
 }
 
 function wall(x0: number, z0: number, x1: number, z1: number, h = 30): Box {
@@ -105,8 +133,9 @@ export function factoryExpansion(): Expansion {
   // Dos bloques de 5 columnas; tramos de 2 contenedores en fila separados por pasillos de 6 m.
   const blocks = [38.6, 58.4];
   const segStarts = [-33, -14.6, 3.8, 22.3, 40.7, 59.1];
-  for (const bx of blocks) {
-    for (const sz of segStarts) {
+  const ground: { x: number; z0: number; height: number; open: boolean; row: number; seg: number; block: number; stair?: boolean }[] = [];
+  for (const [block, bx] of blocks.entries()) {
+    for (const [seg, sz] of segStarts.entries()) {
       for (let c = 0; c < 5; c++) {
         for (let row = 0; row < 2; row++) {
           const roll = r();
@@ -114,15 +143,31 @@ export function factoryExpansion(): Expansion {
           const height = roll < 0.16 ? 0 : roll < 0.5 ? 1 : roll < 0.86 ? 2 : 3;
           const x = bx + c * (CONT.w + 0.28) + CONT.w / 2;
           const z = sz + row * (CONT.d + 0.3) + CONT.d / 2;
+          // Algunos contenedores a ras del suelo están abiertos hacia el pasillo: se puede entrar
+          const open = height > 0 && r() < 0.3;
+          ground.push({ x, z0: sz + row * (CONT.d + 0.3), height, open, row, seg, block });
           for (let k = 0; k < height; k++) {
             // las cajas de arriba se desalinean un poco: se ve más real
             const jx = k ? (r() - 0.5) * 0.12 : 0, jz = k ? (r() - 0.5) * 0.3 : 0;
-            // la puerta del modelo queda hacia el contenedor vecino (no hacia el pasillo)
-            add("container", x + jx, z + jz, CONT.w, CONT.h, CONT.d, row ? 0 : 2, Math.floor(r() * 6), k * CONT.h);
+            const v = Math.floor(r() * 6);
+            // la puerta de los cerrados queda hacia el contenedor vecino; la de los abiertos, hacia el pasillo
+            // Todos son huecos (el modelo tiene una hoja abierta): a los de arriba se entra desde la pila vecina
+            if (k === 0 && open) add("containerOpen", x, z, CONT.w, CONT.h, CONT.d, row ? 2 : 0, v, 0);
+            else add("containerOpen", x + jx, z + jz, CONT.w, CONT.h, CONT.d, row ? 0 : 2, v, k * CONT.h);
           }
         }
       }
     }
+  }
+  // Escaleras de cajas para subir a los contenedores: se apoyan en el pasillo contra un contenedor
+  // suelto (sin otro encima) y cerrado. Cada peldaño mide 0.52 m.
+  let stairs = 0;
+  for (const g of ground) {
+    if (stairs >= 5 || g.height !== 1 || g.open || g.row !== 0 || g.seg === 0 || (g.seg + g.block) % 2 === 0) continue;
+    if (ground.some((o) => o !== g && o.stair && o.seg === g.seg && o.block === g.block)) continue;
+    g.stair = true;
+    stairs++;
+    for (let i = 0; i < 4; i++) add("stepbox", g.x, g.z0 - 0.6 - (3 - i) * 0.95, 1.1, 0.52 * (i + 1), 1.1, 0, i);
   }
   // Grúa pórtico sobre los dos bloques, en el pasillo z 34.7..40.7
   for (const lx of [36.6, 55.2, 73.8]) for (const lz of [35.6, 39.8]) add("gantryLeg", lx, lz, 0.9, 16, 0.9);
@@ -181,12 +226,21 @@ export function factoryExpansion(): Expansion {
   // --- Fachadas que cierran el área ---
   const B = (modules: number, floors: number, style: number, ground: number) => ({ modules, floors, style, ground });
   const facades: FacadeRun[] = [
-    { x0: 27, z0: -37.3, x1: 76.3, z1: -37.3, facing: "s", buildings: [B(6, 5, 0, 0), B(5, 4, 1, 1), B(5, 6, 2, 0)] },
-    { x0: 76.3, z0: -37.3, x1: 76.3, z1: 86.3, facing: "w", buildings: [B(9, 5, 3, 1), B(8, 4, 0, 0), B(9, 6, 1, 2), B(7, 4, 2, 0), B(8, 5, 0, 1)] },
-    { x0: 76.3, z0: 86.3, x1: -34.3, z1: 86.3, facing: "n", buildings: [B(8, 4, 2, 0), B(9, 5, 0, 1), B(10, 4, 1, 2), B(10, 6, 3, 0)] },
-    { x0: -34.3, z0: 86.3, x1: -34.3, z1: 37, facing: "e", buildings: [B(8, 5, 1, 0), B(8, 4, 2, 1)] },
+    { x0: 27, z0: -37.3, x1: 76.3, z1: -37.3, facing: "s", buildings: [B(6, 5, 0, 0), B(5, 4, 1, 1), B(6, 6, 2, 0)] },
+    { x0: 76.3, z0: -37.3, x1: 76.3, z1: 86.3, facing: "w", buildings: [B(9, 5, 3, 1), B(8, 4, 0, 0), B(9, 6, 1, 2), B(7, 4, 2, 0), B(9, 5, 0, 1)] },
+    { x0: 76.3, z0: 86.3, x1: -34.3, z1: 86.3, facing: "n", buildings: [B(8, 4, 2, 0), B(9, 5, 0, 1), B(10, 4, 1, 2), B(11, 6, 3, 0)] },
+    { x0: -34.3, z0: 86.3, x1: -34.3, z1: 37, facing: "e", buildings: [B(8, 5, 1, 0), B(9, 4, 2, 1)] },
     { x0: 26.7, z0: -25, x1: 26.7, z1: -37.3, facing: "e", buildings: [B(4, 5, 0, 0)] },
+    // Cierre de la fábrica original al norte y al oeste: tapa el vacío que se veía entre sus edificios
+    { x0: -37.6, z0: -25.6, x1: 27, z1: -25.6, facing: "s", buildings: [B(7, 6, 1, 0), B(7, 7, 3, 0), B(8, 6, 0, 0)] },
+    { x0: -34.6, z0: 37, x1: -34.6, z1: -25.6, facing: "e", buildings: [B(7, 7, 2, 0), B(7, 6, 0, 0), B(7, 7, 1, 0)] },
   ];
+  // Vereda al pie de las fachadas del patio: tapa la unión entre el suelo y la pared
+  add("curb", 51.5, -36.5, 49, 0.16, 1.0);
+  add("curb", 75.5, 24.5, 1.0, 0.16, 121);
+  add("curb", 20.5, 85.5, 109, 0.16, 1.0);
+  add("curb", -33.5, 61.5, 1.0, 0.16, 47);
+  add("curb", 27.5, -31, 1.0, 0.16, 11);
 
   const grounds: Expansion["grounds"] = [
     [27, -37, 76, 86, "yard"],
@@ -212,7 +266,8 @@ export function factoryExpansion(): Expansion {
   ];
   const lights: Expansion["lights"] = [];
   for (const p of pieces) if (p.kind === "lightmast") lights.push([p.x, p.h - 0.6, p.z, p.v ? 3 : 1]);
-  return { pieces, facades, grounds, lines, walls, lights, bounds: { minX: -34, maxX: 76, minZ: -37, maxZ: 86 } };
+  const seams: Expansion["seams"] = [[26.7, -25, 27.3, 37], [-34, 36.7, 27.3, 37.3]];
+  return { pieces, facades, grounds, seams, lines, walls, lights, bounds: { minX: -34, maxX: 76, minZ: -37, maxZ: 86 } };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -276,12 +331,14 @@ export function stationHangar(): Expansion {
   // Nave de desembarco en la plataforma central
   add("dropship", cx + 1, 21.6, 7, 4.2, 12, 1);
   // Contenedores de carga (modelo de contenedor en tonos oscuros) y cajas
-  const cont = (x: number, z: number, rot: number, stack: number) => {
-    for (let k = 0; k < stack; k++) add("container", x, z, CONT.w, CONT.h, CONT.d, rot, 6 + Math.floor(r() * 2), k * CONT.h);
+  const cont = (x: number, z: number, rot: number, stack: number, open = false) => {
+    for (let k = 0; k < stack; k++) add(open || k >= 0 ? "containerOpen" : "container", x, z, CONT.w, CONT.h, CONT.d, rot, 6 + Math.floor(r() * 2), k * CONT.h);
   };
-  cont(24, 33, 0, 2); cont(26.8, 33, 0, 1); cont(24, 9, 0, 1);
-  cont(52, 39.5, 1, 1); cont(52, 36.7, 1, 2);
-  cont(30, 39.6, 1, 1);
+  cont(24, 33, 0, 2, true); cont(26.8, 33, 2, 1); cont(24, 9, 2, 1, true);
+  cont(52, 39.5, 1, 1); cont(52, 36.7, 1, 2, true);
+  cont(30, 39.6, 3, 1, true);
+  // cajas apiladas como escalera hacia el contenedor del fondo
+  for (let i = 0; i < 4; i++) add("stepbox", 49.2 + 0, 34.0 - i * 0.9, 1.1, 0.52 * (i + 1), 1.1, 0, i);
   const crates: [number, number, number][] = [
     [33, 13, 0], [34.2, 14.1, 1], [47, 30, 0], [48.3, 29, 1], [27, 22.5, 0], [56, 15, 0], [56, 16.3, 1],
     [44.5, 9.5, 0], [21, 41, 1], [36, 38.5, 0], [59.5, 27, 0], [59.5, 24.5, 1],
@@ -300,7 +357,7 @@ export function stationHangar(): Expansion {
 
   const walls: Box[] = [];
   return {
-    pieces, facades: [], grounds: [], lines: [
+    pieces, facades: [], grounds: [], seams: [[10.2, HANGAR.door.z0, 10.9, HANGAR.door.z1], [17.7, HANGAR.door.z0, 18.3, HANGAR.door.z1]], lines: [
       // Marcas de la plataforma de aterrizaje
       [cx - 9, 13, cx + 11, 13, 0.25, 1], [cx - 9, 30, cx + 11, 30, 0.25, 1],
       [cx - 9, 13, cx - 9, 30, 0.25, 1], [cx + 11, 13, cx + 11, 30, 0.25, 1],
@@ -311,5 +368,5 @@ export function stationHangar(): Expansion {
 }
 
 export function expansionBoxes(e: Expansion): Box[] {
-  return [...e.pieces.filter((p) => !p.ghost).map(pieceBox), ...e.walls];
+  return [...e.pieces.filter((p) => !p.ghost).flatMap(pieceBoxes), ...e.walls];
 }

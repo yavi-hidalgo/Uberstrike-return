@@ -70,10 +70,12 @@ kbd {
 #scope:not(.hidden) ~ #crosshair { display: none; }
 #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 #crosshair i { position: absolute; background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 2px rgba(0, 0, 0, 0.9); }
-#crosshair i:nth-child(1) { width: 2px; height: 7px; left: -1px; top: -13px; }
-#crosshair i:nth-child(2) { width: 2px; height: 7px; left: -1px; top: 6px; }
-#crosshair i:nth-child(3) { width: 7px; height: 2px; left: -13px; top: -1px; }
-#crosshair i:nth-child(4) { width: 7px; height: 2px; left: 6px; top: -1px; }
+#crosshair { --gap: 6px; transition: opacity 0.12s; }
+#crosshair i:nth-child(1) { width: 2px; height: 7px; left: -1px; top: calc(-7px - var(--gap)); }
+#crosshair i:nth-child(2) { width: 2px; height: 7px; left: -1px; top: var(--gap); }
+#crosshair i:nth-child(3) { width: 7px; height: 2px; left: calc(-7px - var(--gap)); top: -1px; }
+#crosshair i:nth-child(4) { width: 7px; height: 2px; left: var(--gap); top: -1px; }
+#crosshair.ads i { opacity: 0.35; }
 #crosshair b { position: absolute; width: 2px; height: 2px; left: -1px; top: -1px; background: #fff; border-radius: 1px; }
 
 #hitmarker {

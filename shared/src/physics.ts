@@ -2,7 +2,7 @@
 // la usa para "predecir" su propio movimiento sin esperar al servidor.
 
 import {
-  EYE_HEIGHT, GRAVITY, JUMP_VELOCITY, KEY, MOVE_SPEED,
+  AIM_SPEED_K, AIR_ACCEL, EYE_HEIGHT, GRAVITY, GROUND_ACCEL, GROUND_FRICTION, JUMP_VELOCITY, KEY, MOVE_SPEED, SPRINT_SPEED,
   PLAYER_HEIGHT, PLAYER_RADIUS,
 } from "./constants";
 import type { Box } from "./map";
@@ -15,6 +15,9 @@ export interface MoveState {
   z: number;
   vy: number;
   onGround: boolean;
+  /** Velocidad horizontal (m/s). Si falta se toma como 0. */
+  vx?: number;
+  vz?: number;
 }
 
 export interface InputCmd {
@@ -105,12 +108,22 @@ export function stepMove(s: MoveState, keys: number, yaw: number, dt: number, bo
   let vx = fwdX * fz + rightX * fx;
   let vz = fwdZ * fz + rightZ * fx;
   const len = Math.hypot(vx, vz);
-  if (len > 0) {
-    vx = (vx / len) * MOVE_SPEED;
-    vz = (vz / len) * MOVE_SPEED;
-  }
-
+  // Velocidad deseada: correr solo hacia delante y sin apuntar; apuntando se va más lento
+  const aiming = (keys & KEY.AIM) !== 0;
+  const sprint = (keys & KEY.SPRINT) !== 0 && fz > 0 && !aiming && !(keys & KEY.FIRE);
+  const top = sprint ? SPRINT_SPEED : aiming ? MOVE_SPEED * AIM_SPEED_K : MOVE_SPEED;
+  const tx = len > 0 ? (vx / len) * top : 0, tz = len > 0 ? (vz / len) * top : 0;
+  // Aceleración y fricción: la velocidad se acerca a la deseada en vez de saltar a ella
   const wasGround = s.onGround;
+  const rate = (wasGround ? (len > 0 ? GROUND_ACCEL : GROUND_FRICTION) : AIR_ACCEL) * dt;
+  const cvx = s.vx ?? 0, cvz = s.vz ?? 0;
+  const dvx = tx - cvx, dvz = tz - cvz;
+  const dv = Math.hypot(dvx, dvz);
+  // en el aire, sin teclas, se conserva el impulso
+  if (!wasGround && len === 0) { vx = cvx; vz = cvz; }
+  else if (dv <= rate) { vx = tx; vz = tz; }
+  else { vx = cvx + (dvx / dv) * rate; vz = cvz + (dvz / dv) * rate; }
+
   if ((keys & KEY.JUMP) && s.onGround) {
     s.vy = JUMP_VELOCITY;
   }
@@ -118,7 +131,7 @@ export function stepMove(s: MoveState, keys: number, yaw: number, dt: number, bo
   s.onGround = false;
 
   // Solo revisamos las cajas cercanas al recorrido de este tick
-  const reach = PLAYER_RADIUS + MOVE_SPEED * dt + 0.2;
+  const reach = PLAYER_RADIUS + SPRINT_SPEED * dt + 0.2;
   const cand = boxesNear(boxes, s.x - reach, s.x + reach, s.z - reach, s.z + reach, near);
 
   // Si algo bloquea el paso pero es un escalón bajo y hay sitio encima, se sube.
@@ -135,19 +148,24 @@ export function stepMove(s: MoveState, keys: number, yaw: number, dt: number, bo
   };
 
   // Eje X
+  const posX = vx > 0, posZ = vz > 0;
   s.x += vx * dt;
   for (const b of cand) {
     if (overlaps(s, b) && !tryStep(b)) {
-      s.x = vx > 0 ? b.min[0] - PLAYER_RADIUS - EPS : b.max[0] + PLAYER_RADIUS + EPS;
+      s.x = posX ? b.min[0] - PLAYER_RADIUS - EPS : b.max[0] + PLAYER_RADIUS + EPS;
+      vx = 0;
     }
   }
   // Eje Z
   s.z += vz * dt;
   for (const b of cand) {
     if (overlaps(s, b) && !tryStep(b)) {
-      s.z = vz > 0 ? b.min[2] - PLAYER_RADIUS - EPS : b.max[2] + PLAYER_RADIUS + EPS;
+      s.z = posZ ? b.min[2] - PLAYER_RADIUS - EPS : b.max[2] + PLAYER_RADIUS + EPS;
+      vz = 0;
     }
   }
+  s.vx = vx;
+  s.vz = vz;
   // Eje Y
   s.y += s.vy * dt;
   for (const b of cand) {

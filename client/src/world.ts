@@ -16,6 +16,8 @@ import { buildProps, hasModel, loadPropModels } from "./props";
 import { weaponAnchors, weaponObject } from "./weaponmodels";
 import { ArmsViewModel } from "./fparms";
 import { softSprite } from "./textures";
+import { Tracers } from "./tracers";
+import type { WeaponFx } from "./fx";
 import { weaponModel } from "../../shared/src/weapons";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -59,7 +61,10 @@ export class World {
   private env: Environment;
   private map: MapVisuals;
   private avatars = new Map<number, Avatar>();
-  private tracers: { obj: THREE.Line; life: number; mat: THREE.LineBasicMaterial }[] = [];
+  private tracerFx = new Tracers(this.scene);
+  private remoteFlash = new THREE.PointLight(0xffb05a, 0, 9, 2);
+  private remoteFlashT = 0;
+  private numbers: { sp: THREE.Sprite; mat: THREE.SpriteMaterial; tex: THREE.Texture; life: number; vx: number }[] = [];
   private time = 0;
   /** El arma en primera persona se dibuja en su propia escena, con luz de estudio. */
   private hemi!: THREE.HemisphereLight;
@@ -140,6 +145,7 @@ export class World {
     this.scene.add(this.camera);
     this.setupWeaponScene();
     this.effects = new ShotEffects(this.scene, quality === "low" ? 24 : 64);
+    this.scene.add(this.remoteFlash);
 
     if (usePost) {
       this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType });
@@ -402,11 +408,11 @@ export class World {
 
   private baseFov = 72;
   /** Zoom de la mira (0 = sin zoom). */
-  setZoom(fov: number) {
-    const target = fov > 0 ? fov : this.baseFov;
+  setZoom(fov: number, extra = 0) {
+    const target = (fov > 0 ? fov : this.baseFov) + (fov > 0 ? 0 : extra);
     if (Math.abs(this.camera.fov - target) < 0.01) return;
-    this.camera.fov += (target - this.camera.fov) * 0.35;
-    if (Math.abs(this.camera.fov - target) < 0.3) this.camera.fov = target;
+    this.camera.fov += (target - this.camera.fov) * 0.3;
+    if (Math.abs(this.camera.fov - target) < 0.2) this.camera.fov = target;
     this.camera.updateProjectionMatrix();
   }
 
@@ -455,39 +461,65 @@ export class World {
     this.weaponCamera.updateProjectionMatrix();
   }
 
-  setView(x: number, y: number, z: number, yaw: number, pitch: number) {
-    this.camera.position.set(x, y + EYE_HEIGHT, z);
-    this.camera.rotation.set(pitch, yaw, 0);
+  setView(x: number, y: number, z: number, yaw: number, pitch: number, roll = 0, lift = 0) {
+    this.camera.position.set(x, y + EYE_HEIGHT + lift, z);
+    this.camera.rotation.set(pitch, yaw, roll);
   }
 
   // ---------- Disparos ----------
 
   /** Disparo propio: fogonazo, casquillo, trazadora e impacto. */
-  localShot(hits: { point: THREE.Vector3; normal: THREE.Vector3; kind: string | null }[], feetY: number) {
-    this.weapon.fire(hits.length);
+  /** Disparo propio: fogonazo, humo, casquillo, trazadoras e impactos según el arma. */
+  localShot(hits: { point: THREE.Vector3; normal: THREE.Vector3; kind: string | null }[], feetY: number, fx: WeaponFx) {
+    this.weapon.fire(fx);
     this.camera.updateMatrixWorld(true);
     // El arma vive en el espacio de la cámara: lo pasamos al mundo para la trazadora
     const from = this.camera.localToWorld(this.weapon.muzzleWorld());
-    for (const h of hits) {
-      this.tracer(from, h.point, 0xffe2a8);
-      this.effects.impact(h.point, h.normal, h.kind);
+    for (const h of hits) this.tracerFx.add(from, h.point, fx, () => this.effects.impact(h.point, h.normal, h.kind, fx));
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    if (fx.smoke) this.effects.muzzleSmoke(from, fwd, fx.smoke);
+    if (fx.casing) {
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      this.effects.ejectShell(this.camera.localToWorld(this.weapon.ejectorWorld()), right, up, feetY);
     }
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
-    this.effects.ejectShell(this.camera.localToWorld(this.weapon.ejectorWorld()), right, up, feetY);
   }
 
-  remoteShot(from: THREE.Vector3, to: THREE.Vector3, normal: THREE.Vector3 | null, kind: string | null) {
-    this.tracer(from, to, 0xff9a6b);
-    if (normal) this.effects.impact(to, normal, kind);
+  remoteShot(from: THREE.Vector3, to: THREE.Vector3, normal: THREE.Vector3 | null, kind: string | null, fx: WeaponFx) {
+    this.tracerFx.add(from, to, fx, normal ? () => this.effects.impact(to, normal, kind, fx) : undefined);
+    if (fx.smoke) this.effects.muzzleSmoke(from, to.clone().sub(from).normalize(), Math.ceil(fx.smoke / 2));
+    // destello breve en el cañón del otro jugador
+    const l = this.remoteFlash;
+    l.color.set(fx.energy ? fx.color : 0xffb05a);
+    l.position.copy(from);
+    l.intensity = fx.flashLight * 0.8;
+    this.remoteFlashT = 0.06;
   }
 
-  private tracer(from: THREE.Vector3, to: THREE.Vector3, color: number) {
-    const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
-    const line = new THREE.Line(geo, mat);
-    this.scene.add(line);
-    this.tracers.push({ obj: line, life: 0.06, mat });
+  /** Número de daño flotando sobre el jugador al que se acertó, y salpicadura. */
+  damageNumber(victimId: number, damage: number, headshot: boolean, kill: boolean) {
+    const av = this.avatars.get(victimId);
+    if (!av) return;
+    const pos = av.group.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.4, headshot ? 1.75 : 1.25, (Math.random() - 0.5) * 0.4));
+    this.effects.bodyHit(pos, headshot);
+    const c = document.createElement("canvas");
+    c.width = 128; c.height = 64;
+    const g = c.getContext("2d")!;
+    g.font = "800 46px 'Saira Condensed', sans-serif";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.lineWidth = 6; g.strokeStyle = "rgba(0,0,0,0.85)";
+    g.fillStyle = kill ? "#ff5a4a" : headshot ? "#ffd84a" : "#ffffff";
+    g.strokeText(String(damage), 64, 34); g.fillText(String(damage), 64, 34);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false, fog: false });
+    const sp = new THREE.Sprite(mat);
+    const size = 0.05 + Math.min(0.035, damage / 2500) + (headshot ? 0.012 : 0);
+    sp.scale.set(size * 2, size, 1);
+    sp.position.copy(pos).add(new THREE.Vector3(0, 0.35, 0));
+    sp.renderOrder = 50;
+    this.scene.add(sp);
+    this.numbers.push({ sp, mat, tex, life: 0.85, vx: (Math.random() - 0.5) * 0.8 });
   }
 
   // ---------- Jugadores ----------
@@ -531,7 +563,7 @@ export class World {
     }
   }
 
-  render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean; aiming: boolean; reloadSeconds?: number }) {
+  render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean; aiming: boolean; ads?: boolean; sprinting?: boolean; reloadSeconds?: number }) {
     this.time += dt;
     this.env.update(dt, this.time, this.camera.position);
     this.expansion?.update(this.time);
@@ -552,16 +584,15 @@ export class World {
     }
     for (const a of this.avatars.values()) a.update(dt);
 
-    for (let i = this.tracers.length - 1; i >= 0; i--) {
-      const t = this.tracers[i];
-      t.life -= dt;
-      t.mat.opacity = Math.max(0, t.life / 0.06) * 0.85;
-      if (t.life <= 0) {
-        this.scene.remove(t.obj);
-        t.obj.geometry.dispose();
-        t.mat.dispose();
-        this.tracers.splice(i, 1);
-      }
+    this.tracerFx.update(dt);
+    if (this.remoteFlashT > 0) { this.remoteFlashT -= dt; if (this.remoteFlashT <= 0) this.remoteFlash.intensity = 0; }
+    for (let i = this.numbers.length - 1; i >= 0; i--) {
+      const n = this.numbers[i];
+      n.life -= dt;
+      n.sp.position.y += dt * 1.1;
+      n.sp.position.x += n.vx * dt;
+      n.mat.opacity = Math.min(1, n.life / 0.3);
+      if (n.life <= 0) { this.scene.remove(n.sp); n.mat.dispose(); n.tex.dispose(); this.numbers.splice(i, 1); }
     }
     this.effects.update(dt);
     this.weapon.update(dt, { ...view, visible: view.alive });

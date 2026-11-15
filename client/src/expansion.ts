@@ -4,6 +4,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { Expansion, FacadeRun, Piece } from "../../shared/src/layout";
 import { applyWorldUV, photoMaterial } from "./textures";
 
@@ -84,12 +85,17 @@ function fitMatrix(tplBox: THREE.Box3, p: Piece, opts: { uniform?: boolean; rotY
   return m;
 }
 
-/** Caja de los vértices del contenedor, sin la puerta abierta del extremo +X. */
+/**
+ * Caja del cuerpo del contenedor. El modelo trae una hoja de la puerta abierta en el extremo +X,
+ * que sobresale hacia +X y +Z: el alto y el ancho salen de la mitad trasera, y el largo llega
+ * hasta la hoja cerrada (los vértices del lado -Z).
+ */
 function bodyBox(o: THREE.Object3D): THREE.Box3 {
   const full = new THREE.Box3().setFromObject(o);
-  const cut = full.max.x - 0.25;
+  const midX = (full.min.x + full.max.x) / 2;
   const b = new THREE.Box3();
   const v = new THREE.Vector3();
+  const pts: THREE.Vector3[] = [];
   o.updateMatrixWorld(true);
   o.traverse((c) => {
     const m = c as THREE.Mesh;
@@ -97,10 +103,14 @@ function bodyBox(o: THREE.Object3D): THREE.Box3 {
     const pos = m.geometry.getAttribute("position");
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
-      if (v.x < cut) b.expandByPoint(v);
+      pts.push(v.clone());
+      if (v.x < midX) b.expandByPoint(v);
     }
   });
-  b.max.x = full.max.x;
+  const midZ = (b.min.z + b.max.z) / 2;
+  let maxX = b.max.x;
+  for (const p of pts) if (p.z < midZ && p.z > b.min.z - 0.02) maxX = Math.max(maxX, p.x);
+  b.max.x = maxX;
   return b;
 }
 
@@ -162,6 +172,15 @@ export async function buildExpansion(e: Expansion, quality: Quality, opts: { ind
     m.receiveShadow = shadows;
     group.add(m);
   }
+  // Rejillas de desagüe sobre las uniones entre suelos distintos
+  const grate = photoMaterial("metal_plate_02", 0.6, { tint: 0x3c4046, metalness: 0.7 });
+  for (const [x0, z0, x1, z1] of e.seams) {
+    const m = boxMesh(x1 - x0, 0.03, z1 - z0, grate, (x0 + x1) / 2, -0.005, (z0 + z1) / 2, false);
+    m.receiveShadow = shadows;
+    group.add(m);
+  }
+  if (!opts.indoor) buildSurroundings(e, group, shadows);
+
   // Líneas pintadas (algo transparentes: pintura gastada)
   const lineMats = [
     new THREE.MeshStandardMaterial({ color: 0xe8e6de, roughness: 0.85, transparent: true, opacity: 0.75, polygonOffset: true, polygonOffsetFactor: -2 }),
@@ -180,6 +199,7 @@ export async function buildExpansion(e: Expansion, quality: Quality, opts: { ind
 
   // ---------- Materiales por código ----------
   const concreteWall = photoMaterial("concrete_wall_007", 3);
+  const curbMat = photoMaterial("concrete_floor_worn_001", 2.2, { tint: 0xb0aca4 });
   const corrugated = [photoMaterial("corrugated_iron", 2.5, { tint: 0xb8c0c4, metalness: 0.6 }), photoMaterial("corrugated_iron", 2.5, { tint: 0x7f9fae, metalness: 0.6 })];
   const yellowPaint = photoMaterial("rusty_metal_02", 2, { tint: 0xe2ad2a, metalness: 0.35 });
   const galvanized = photoMaterial("metal_plate_02", 1.5, { tint: 0x9aa2a8, metalness: 0.7 });
@@ -227,12 +247,23 @@ export async function buildExpansion(e: Expansion, quality: Quality, opts: { ind
 
   for (const p of e.pieces) {
     switch (p.kind) {
-      case "container": {
+      case "container": case "containerOpen": {
         const t = tpl.get("container");
         if (!t) { group.add(boxMesh(p.rot % 2 ? p.d : p.w, p.h, p.rot % 2 ? p.w : p.d, corrugated[0], p.x, p.y, p.z, shadows)); break; }
-        // el modelo trae una puerta abierta en el extremo +X: se encaja solo el cuerpo (sin la puerta)
+        // el modelo trae una hoja abierta en el extremo +X (queda en -Z de la pieza): se encaja solo el cuerpo
         const b = containerBody ??= bodyBox(t);
         inst.add(t, fitMatrix(b, p, { rotY: Math.PI / 2 }), `container${p.v}`, tinted(CONTAINER_TINTS[p.v % CONTAINER_TINTS.length]));
+        break;
+      }
+      case "stepbox": {
+        // pila de cajas militares: una por cada 0.52 m de alto
+        const t = tpl.get("wooden_military_crate");
+        if (!t) { group.add(boxMesh(p.w, p.h, p.d, corrugated[0], p.x, p.y, p.z, shadows)); break; }
+        const n = Math.max(1, Math.round(p.h / 0.52));
+        for (let i = 0; i < n; i++) {
+          const layer: Piece = { ...p, y: p.y + i * (p.h / n), h: p.h / n, rot: (p.v + i) % 2 };
+          inst.add(t, fitMatrix(bbox(t), layer), "stepbox");
+        }
         break;
       }
       case "car": {
@@ -365,6 +396,12 @@ export async function buildExpansion(e: Expansion, quality: Quality, opts: { ind
         for (let x = -p.w / 2 + 2; x < p.w / 2 - 1; x += 4) g.add(boxMesh(0.5, 0.6, 0.15, rubber, x, 0.25, -p.d / 2 - 0.07, shadows, false));
         g.applyMatrix4(placed(p));
         group.add(g);
+        break;
+      }
+      case "curb": {
+        const m = boxMesh(p.w, p.h, p.d, curbMat, p.x, p.y, p.z, false);
+        m.receiveShadow = shadows;
+        group.add(m);
         break;
       }
       case "step": {
@@ -583,6 +620,13 @@ function buildHangarPiece(p: Piece, group: THREE.Group, shadows: boolean, glows:
     }
     case "hangarWall": {
       group.add(boxMesh(w, p.h, d, p.v ? M.dark : M.wall, p.x, p.y, p.z, shadows));
+      // Zócalo y canaleta al pie de la pared, y moldura arriba: tapan las uniones con el piso y el techo
+      if (p.y === 0 && p.h > 3) {
+        group.add(boxMesh(w + 0.24, 0.45, d + 0.24, M.dark, p.x, 0, p.z, shadows));
+        group.add(boxMesh(w + 0.5, 0.05, d + 0.5, M.grate, p.x, 0, p.z, false));
+        group.add(boxMesh(w + 0.3, 0.12, d + 0.3, M.trim, p.x, 0.45, p.z, false));
+      }
+      if (p.y + p.h > 13) group.add(boxMesh(w + 0.3, 0.5, d + 0.3, M.dark, p.x, p.y + p.h - 0.5, p.z, false));
       break;
     }
     case "hangarCeiling": {
@@ -654,4 +698,90 @@ function buildHangarPiece(p: Piece, group: THREE.Group, shadows: boolean, glows:
       break;
     }
   }
+}
+
+
+// ---------- Alrededores: suelo más allá del límite y edificios lejanos ----------
+
+/** Textura de fachada lejana: grilla de ventanas, algunas encendidas. */
+function skylineTexture(seed: number): { map: THREE.CanvasTexture; emissive: THREE.CanvasTexture } {
+  let s = seed;
+  const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  const mk = () => { const c = document.createElement("canvas"); c.width = 256; c.height = 256; return c; };
+  const a = mk(), b = mk();
+  const g = a.getContext("2d")!, ge = b.getContext("2d")!;
+  const tone = 70 + Math.floor(rnd() * 50);
+  g.fillStyle = `rgb(${tone + 12},${tone + 4},${tone})`; g.fillRect(0, 0, 256, 256);
+  ge.fillStyle = "#000"; ge.fillRect(0, 0, 256, 256);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    const lit = rnd() < 0.22;
+    g.fillStyle = lit ? "#caa66a" : `rgb(${28 + rnd() * 20},${34 + rnd() * 20},${44 + rnd() * 24})`;
+    g.fillRect(x * 32 + 7, y * 32 + 6, 18, 20);
+    if (lit) { ge.fillStyle = `rgb(${200 + rnd() * 55},${150 + rnd() * 50},${80 + rnd() * 40})`; ge.fillRect(x * 32 + 7, y * 32 + 6, 18, 20); }
+  }
+  const tex = (c: HTMLCanvasElement) => { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+  return { map: tex(a), emissive: tex(b) };
+}
+
+function buildSurroundings(e: Expansion, group: THREE.Group, shadows: boolean) {
+  const b = e.bounds;
+  const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+  // Suelo hasta el horizonte: ya no se ve vacío por debajo del cielo
+  const ground = new THREE.PlaneGeometry(1400, 1400);
+  ground.rotateX(-Math.PI / 2);
+  ground.translate(cx, -0.2, cz);
+  applyWorldUV(ground);
+  const gm = new THREE.Mesh(ground, photoMaterial("asphalt_02", 9, { tint: 0x6c6a66 }));
+  gm.receiveShadow = shadows;
+  group.add(gm);
+
+  // Anillo de edificios lejanos, cada vez más altos hacia afuera. Una malla por variante de fachada.
+  let seed = 90210;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const variants = [0, 1, 2].map((i) => {
+    const t = skylineTexture(1234 + i * 77);
+    return { mat: new THREE.MeshStandardMaterial({ map: t.map, emissiveMap: t.emissive, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.9 }), geos: [] as THREE.BufferGeometry[] };
+  });
+  const roof = new THREE.MeshStandardMaterial({ color: 0x3a3a3c, roughness: 1 });
+  const roofs: THREE.BufferGeometry[] = [];
+  const place = (x: number, z: number, w: number, d: number, h: number) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    // UV en metros: una ventana cada ~3.5 m
+    const uv = g.getAttribute("uv") as THREE.BufferAttribute;
+    const pos = g.getAttribute("position") as THREE.BufferAttribute;
+    const nor = g.getAttribute("normal") as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) {
+      const horiz = Math.abs(nor.getX(i)) > 0.5 ? pos.getZ(i) : pos.getX(i);
+      uv.setXY(i, horiz / 28, pos.getY(i) / 28);
+    }
+    g.translate(x, h / 2 - 0.2, z);
+    variants[Math.floor(rnd() * variants.length)].geos.push(g);
+    const r = new THREE.BoxGeometry(w + 0.6, 0.8, d + 0.6);
+    r.translate(x, h - 0.2, z);
+    roofs.push(r);
+  };
+  for (let ring = 0; ring < 3; ring++) {
+    const off = 16 + ring * 34;
+    const x0 = b.minX - off, x1 = b.maxX + off, z0 = b.minZ - off, z1 = b.maxZ + off;
+    const hMin = 20 + ring * 14, hVar = 18 + ring * 22;
+    const side = (ax: number, az: number, bx: number, bz: number) => {
+      const len = Math.hypot(bx - ax, bz - az);
+      let t = 0;
+      while (t < len) {
+        const w = 16 + rnd() * 22;
+        const k = (t + w / 2) / len;
+        const alongX = Math.abs(bx - ax) > Math.abs(bz - az);
+        if (rnd() > 0.12) place(ax + (bx - ax) * k, az + (bz - az) * k, alongX ? w : 18 + rnd() * 10, alongX ? 18 + rnd() * 10 : w, hMin + rnd() * hVar);
+        t += w + 3 + rnd() * 8;
+      }
+    };
+    side(x0, z0, x1, z0); side(x1, z0, x1, z1); side(x1, z1, x0, z1); side(x0, z1, x0, z0);
+  }
+  for (const v of variants) {
+    if (!v.geos.length) continue;
+    const m = new THREE.Mesh(mergeGeometries(v.geos), v.mat);
+    m.castShadow = false; m.receiveShadow = false;
+    group.add(m);
+  }
+  group.add(new THREE.Mesh(mergeGeometries(roofs), roof));
 }

@@ -18,23 +18,57 @@ export interface WeaponStats {
   damage: number;
   headshotDamage: number;
   fireIntervalTicks: number;
-  semiAuto: boolean;
+  semiAuto: boolean; // hay que soltar el gatillo entre disparos
   range: number;
   magazine: number;
   reloadTicks: number;
   pellets: number; // perdigones por disparo (escopetas)
-  spread: number; // dispersión en radianes
-  zoomFov: number; // 0 = sin mira
+  spread: number; // dispersión apuntando y quieto (radianes)
+  hipK: number; // multiplicador de dispersión sin apuntar
+  bloom: number; // cuánto se abre la mira con cada disparo (0..1)
+  bloomK: number; // dispersión extra con la mira totalmente abierta (multiplicador)
+  moveSpread: number; // dispersión extra corriendo a toda velocidad (radianes)
+  zoomFov: number; // campo de visión al apuntar (clic derecho)
+  scope: boolean; // mira telescópica a pantalla completa
+  falloffStart: number; // hasta esta distancia hace el daño completo (m)
+  falloffEnd: number; // desde esta distancia hace el daño mínimo (m)
+  falloffMin: number; // fracción del daño a larga distancia
+  energy: boolean; // arma de energía: sin caída de daño ni casquillos
 }
 
 /** Reglas base de cada tipo de arma. */
+const base = (o: Partial<WeaponStats> & Pick<WeaponStats, "damage" | "headshotDamage" | "fireIntervalTicks" | "range" | "magazine" | "reloadTicks">): WeaponStats => ({
+  semiAuto: false, pellets: 1, spread: 0.005, hipK: 2, bloom: 0.1, bloomK: 2, moveSpread: 0.01, zoomFov: 55, scope: false,
+  falloffStart: 30, falloffEnd: 80, falloffMin: 0.6, energy: false, ...o,
+});
 export const CATEGORY_STATS: Record<Category, WeaponStats> = {
-  rifle: { damage: 20, headshotDamage: 40, fireIntervalTicks: 4, semiAuto: false, range: 120, magazine: 30, reloadTicks: 45, pellets: 1, spread: 0.008, zoomFov: 0 },
-  smg: { damage: 14, headshotDamage: 28, fireIntervalTicks: 2, semiAuto: false, range: 60, magazine: 35, reloadTicks: 40, pellets: 1, spread: 0.022, zoomFov: 0 },
-  shotgun: { damage: 12, headshotDamage: 18, fireIntervalTicks: 22, semiAuto: true, range: 40, magazine: 6, reloadTicks: 60, pellets: 8, spread: 0.075, zoomFov: 0 },
-  sniper: { damage: 85, headshotDamage: 150, fireIntervalTicks: 36, semiAuto: true, range: 250, magazine: 5, reloadTicks: 70, pellets: 1, spread: 0.001, zoomFov: 18 },
-  pistol: { damage: 26, headshotDamage: 52, fireIntervalTicks: 5, semiAuto: true, range: 80, magazine: 12, reloadTicks: 33, pellets: 1, spread: 0.01, zoomFov: 0 },
+  // Rifle: preciso apuntando, se descontrola en ráfagas largas, buen alcance
+  rifle: base({ damage: 20, headshotDamage: 40, fireIntervalTicks: 4, range: 120, magazine: 30, reloadTicks: 45, spread: 0.004, hipK: 2.5, bloom: 0.11, bloomK: 3, moveSpread: 0.012, zoomFov: 50, falloffStart: 35, falloffEnd: 90, falloffMin: 0.6 }),
+  // Subfusil: rapidísimo y manejable en movimiento, pero pierde fuerza enseguida con la distancia
+  smg: base({ damage: 14, headshotDamage: 24, fireIntervalTicks: 2, range: 60, magazine: 35, reloadTicks: 40, spread: 0.012, hipK: 1.5, bloom: 0.055, bloomK: 1.8, moveSpread: 0.005, zoomFov: 58, falloffStart: 12, falloffEnd: 42, falloffMin: 0.4 }),
+  // Escopeta: devastadora de cerca, casi inútil de lejos
+  shotgun: base({ damage: 13, headshotDamage: 18, fireIntervalTicks: 22, semiAuto: true, range: 45, magazine: 6, reloadTicks: 60, pellets: 8, spread: 0.065, hipK: 1.15, bloom: 0, bloomK: 0, moveSpread: 0.004, zoomFov: 62, falloffStart: 7, falloffEnd: 26, falloffMin: 0.22 }),
+  // Francotirador: un tiro certero con la mira; sin mira casi no acierta
+  sniper: base({ damage: 85, headshotDamage: 150, fireIntervalTicks: 36, semiAuto: true, range: 250, magazine: 5, reloadTicks: 70, spread: 0.0006, hipK: 70, bloom: 1, bloomK: 0, moveSpread: 0.03, zoomFov: 18, scope: true, falloffStart: 250, falloffEnd: 251, falloffMin: 1 }),
+  // Pistola: precisa tiro a tiro, se abre si se dispara muy rápido
+  pistol: base({ damage: 26, headshotDamage: 52, fireIntervalTicks: 5, semiAuto: true, range: 80, magazine: 12, reloadTicks: 33, spread: 0.006, hipK: 1.8, bloom: 0.22, bloomK: 2.5, moveSpread: 0.008, zoomFov: 56, falloffStart: 18, falloffEnd: 50, falloffMin: 0.5 }),
 };
+
+/** Dispersión real de un disparo según cómo se esté moviendo y disparando el jugador. */
+export function effectiveSpread(w: WeaponStats, o: { aiming: boolean; bloom: number; speed: number; onGround: boolean }): number {
+  const move = Math.min(1, o.speed / 8.8) * w.moveSpread + (o.onGround ? 0 : w.moveSpread * 1.5);
+  return w.spread * (o.aiming ? 1 : w.hipK) * (1 + o.bloom * w.bloomK) + move * (o.aiming ? 0.6 : 1);
+}
+
+/** Fracción del daño a una distancia dada. */
+export function damageFalloff(w: WeaponStats, dist: number): number {
+  if (dist <= w.falloffStart) return 1;
+  if (dist >= w.falloffEnd) return w.falloffMin;
+  return 1 - (1 - w.falloffMin) * ((dist - w.falloffStart) / (w.falloffEnd - w.falloffStart));
+}
+
+/** Cuánto se cierra la mira en cada tick sin disparar. */
+export const BLOOM_RECOVERY = 0.045;
 
 export const CATEGORY_NAMES: Record<Category, string> = {
   rifle: "Rifle de asalto", smg: "Subfusil", shotgun: "Escopeta", sniper: "Francotirador", pistol: "Pistola",
@@ -120,7 +154,8 @@ export function weaponStats(id: string): WeaponStats {
   const v = variation(m.id, 7);
   // Más daño = algo más lento; las futuristas pegan un poco más fuerte pero tienen menos balas
   const dmgK = 0.92 + v * 0.16 + (m.futuristic ? 0.06 : 0);
-  const rateK = 0.9 + v * 0.2;
+  // Las de energía no pierden daño con la distancia, a cambio de menos cadencia y cargador
+  const rateK = 0.9 + v * 0.2 + (m.futuristic ? 0.08 : 0);
   const magK = m.futuristic ? 0.85 : 1;
   return {
     ...base,
@@ -128,6 +163,8 @@ export function weaponStats(id: string): WeaponStats {
     headshotDamage: Math.round(base.headshotDamage * dmgK),
     fireIntervalTicks: Math.max(1, Math.round(base.fireIntervalTicks * rateK)),
     magazine: Math.max(1, Math.round(base.magazine * magK)),
+    energy: m.futuristic,
+    falloffMin: m.futuristic ? Math.max(base.falloffMin, 0.9) : base.falloffMin,
   };
 }
 

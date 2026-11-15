@@ -3,9 +3,9 @@ import "@fontsource/saira-condensed/500.css";
 import "@fontsource/saira-condensed/700.css";
 import "@fontsource/saira-condensed/800.css";
 import { Client, type Room } from "colyseus.js";
-import { DT, EYE_HEIGHT, KEY, MAX_HP, MAX_PITCH } from "../../shared/src/constants";
+import { DT, EYE_HEIGHT, KEY, MAX_HP, MAX_PITCH, SPRINT_SPEED } from "../../shared/src/constants";
 import {
-  CATEGORY_NAMES, DEFAULT_PRIMARY, DEFAULT_SECONDARY, WEAPON_MODELS, validLoadout, weaponModel, weaponStats,
+  BLOOM_RECOVERY, CATEGORY_NAMES, DEFAULT_PRIMARY, DEFAULT_SECONDARY, WEAPON_MODELS, effectiveSpread, validLoadout, weaponModel, weaponStats,
   type Category, type WeaponStats,
 } from "../../shared/src/weapons";
 import { aimDirection, rayMapHit, stepMove, type InputCmd, type MoveState } from "../../shared/src/physics";
@@ -16,6 +16,7 @@ import type {
 import { World, loadQuality, type Quality } from "./world";
 import { DEFAULT_MAP, MAPS, PLAYABLE_MAPS, mapById } from "../../shared/src/maps";
 import { sfx } from "./audio";
+import { weaponFx } from "./fx";
 
 // Dirección del servidor de juego. En producción se define con VITE_SERVER_URL.
 const SERVER_URL: string =
@@ -47,13 +48,14 @@ let mouseDown = false;
 let pendingWeapon = -1; // tecla 1/2 pulsada: se envía en el siguiente tick aunque se suelte enseguida
 
 /** Estado predicho: lo que creemos que dirá el servidor. */
-const pred: MoveState = { x: 0, y: 0, z: 0, vy: 0, onGround: true };
+const pred: MoveState = { x: 0, y: 0, z: 0, vy: 0, onGround: true, vx: 0, vz: 0 };
 const prevTickPos = new THREE.Vector3();
 const currTickPos = new THREE.Vector3();
 const correction = new THREE.Vector3(); // suaviza los ajustes del servidor
 let pending: InputCmd[] = [];
 let accumulator = 0;
 let horizSpeed = 0;
+let sprinting = false;
 let stepTimer = 0;
 let wasOnGround = true;
 
@@ -62,6 +64,14 @@ let loadout: [string, string] = [DEFAULT_PRIMARY, DEFAULT_SECONDARY];
 try { loadout = validLoadout(localStorage.getItem("arena.primary"), localStorage.getItem("arena.secondary")); } catch { /* sin storage */ }
 let slotStats: [WeaponStats, WeaponStats] = [weaponStats(loadout[0]), weaponStats(loadout[1])];
 let aiming = false;
+// Retroceso real: cada disparo sube (y desvía un poco) la mira; se recupera sola al dejar de disparar
+let recoilPitch = 0, recoilYaw = 0;
+/** Apertura de la mira por disparos seguidos (0..1); el servidor lleva su propia cuenta. */
+let bloom = 0;
+// Cámara: balanceo al caminar, hundimiento al aterrizar, inclinación al moverse de lado y sacudida
+let bobPhase = 0, landDip = 0, strafeRoll = 0, shake = 0, lastVy = 0;
+const aimYaw = () => yaw + recoilYaw;
+const aimPitch = () => Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch + recoilPitch));
 
 let me = {
   alive: true, hp: MAX_HP, ammo: slotStats[0].magazine, weapon: 0, switching: false, reloading: false, respawnIn: 0, ping: 0,
@@ -126,7 +136,9 @@ function describe(id: string): string {
   const st = weaponStats(id);
   const rate = Math.round(30 / st.fireIntervalTicks * 10) / 10;
   const dmg = st.pellets > 1 ? `${st.pellets}×${st.damage}` : `${st.damage}`;
-  return `${CATEGORY_NAMES[m.category]} · daño ${dmg} · ${rate} disp/s · cargador ${st.magazine}${st.zoomFov ? " · mira" : ""}${m.author ? ` · modelo de ${m.author}` : ""}`;
+  const reach = st.energy ? "energía: no pierde daño con la distancia, poco retroceso"
+    : st.falloffMin >= 1 ? "daño completo a cualquier distancia" : `daño completo hasta ${st.falloffStart} m, ${Math.round(st.falloffMin * 100)} % desde ${st.falloffEnd} m`;
+  return `${CATEGORY_NAMES[m.category]} · daño ${dmg} · ${rate} disp/s · cargador ${st.magazine} · ${reach}${st.scope ? " · mira telescópica" : ""}${m.author ? ` · modelo de ${m.author}` : ""}`;
 }
 function updateLoadoutInfo() {
   $("primary-info").textContent = describe(primarySel.value);
@@ -224,7 +236,7 @@ function onSnapshot(s: SnapshotMsg) {
   // servidor aún no ha procesado. Si alguien hace trampa en su navegador,
   // aquí es donde el servidor lo "devuelve" a la posición real.
   const before = new THREE.Vector3(pred.x, pred.y, pred.z);
-  Object.assign(pred, { x: y.x, y: y.y, z: y.z, vy: y.vy, onGround: y.g });
+  Object.assign(pred, { x: y.x, y: y.y, z: y.z, vy: y.vy, onGround: y.g, vx: y.vx ?? 0, vz: y.vz ?? 0 });
   pending = pending.filter((c) => c.seq > y.seq);
   if (y.alive) {
     for (const c of pending) stepMove(pred, c.keys, c.yaw, DT, boxes);
@@ -246,6 +258,7 @@ function onSnapshot(s: SnapshotMsg) {
   if ((!wasAlive || snapshotsReceived === 1) && y.alive) {
     yaw = y.yaw;
     pitch = 0;
+    recoilPitch = recoilYaw = bloom = 0;
     lastKiller = null;
   }
 
@@ -268,10 +281,22 @@ function onRemoteShot(s: ShotMsg) {
   dir.normalize();
   const hit = rayMapHit(from.x, from.y, from.z, dir.x, dir.y, dir.z, dist + 0.05, boxes);
   const hitWall = hit.t < dist + 0.04 && hit.t > dist - 0.1;
-  world.remoteShot(from, to, hitWall ? new THREE.Vector3(...hit.normal) : null, hitWall ? hit.kind : null);
+  const fx = weaponFx(roster.get(s.id)?.loadout?.[s.slot ?? 0] ?? DEFAULT_PRIMARY);
+  world.remoteShot(from, to, hitWall ? new THREE.Vector3(...hit.normal) : null, hitWall ? hit.kind : null, fx);
   const d = Math.hypot(s.from[0] - pred.x, s.from[2] - pred.z);
-  sfx.remoteShot(Math.max(0.12, 1 - d / 60));
+  // Varios perdigones llegan en el mismo instante: el sonido se oye una sola vez
+  const now = performance.now();
+  if (lastShotSound.get(s.id) !== undefined && now - lastShotSound.get(s.id)! < 25) return;
+  lastShotSound.set(s.id, now);
+  sfx.weapon(fx, Math.max(0.1, Math.min(0.85, 1 - d / 70)));
+  // Silbido si la bala pasa cerca de la cabeza
+  const eye = new THREE.Vector3(pred.x, pred.y + EYE_HEIGHT, pred.z);
+  const along = Math.max(0, Math.min(dist, eye.clone().sub(from).dot(dir)));
+  const miss = from.clone().addScaledVector(dir, along).distanceTo(eye);
+  if (miss < 1.6 && along > 3 && along < dist - 0.5) { if (fx.energy) sfx.zap(0.8); else sfx.whizz(); }
 }
+
+const lastShotSound = new Map<number, number>();
 
 function onKill(k: KillMsg) {
   const killer = roster.get(k.killer)?.name ?? "?";
@@ -302,12 +327,14 @@ function onHit(h: HitMsg) {
   hm.classList.toggle("head", h.headshot);
   flash("hitmarker", 110);
   if (h.kill) sfx.kill();
-  else sfx.hit(h.headshot);
+  else sfx.hit(h.headshot, h.damage);
+  world.damageNumber(h.victim, h.damage, h.headshot, h.kill);
 }
 
 function onDamaged(m: DamagedMsg) {
   flash("damage-flash", 280);
   sfx.hurt();
+  shake = Math.min(0.05, shake + 0.022);
   // Indicador de dirección: ángulo del atacante relativo a hacia dónde miro.
   // fromAngle = atan2(dx, dz); mi frente es (-sin(yaw), -cos(yaw)) => atan2 = yaw + PI
   const rel = m.fromAngle - (yaw + Math.PI);
@@ -389,6 +416,8 @@ function currentKeys(): number {
   if (k("Space")) keys |= KEY.JUMP;
   if (k("KeyR")) keys |= KEY.RELOAD;
   if (mouseDown) keys |= KEY.FIRE;
+  if (k("ShiftLeft") || k("ShiftRight")) keys |= KEY.SPRINT;
+  if (aiming && !me.reloading && !me.switching) keys |= KEY.AIM;
   if (k("Digit1") || k("Numpad1") || pendingWeapon === 0) keys |= KEY.WEAPON1;
   else if (k("Digit2") || k("Numpad2") || pendingWeapon === 1) keys |= KEY.WEAPON2;
   pendingWeapon = -1;
@@ -399,14 +428,17 @@ function currentKeys(): number {
 function fixedTick() {
   if (!room || snapshotsReceived === 0) return;
   const keys = currentKeys();
-  const cmd: InputCmd = { seq: ++seq, keys, yaw, pitch };
+  const cmd: InputCmd = { seq: ++seq, keys, yaw: aimYaw(), pitch: aimPitch() };
   room.send("input", cmd);
 
   prevTickPos.copy(currTickPos);
   if (me.alive) {
     pending.push(cmd);
     const bx = pred.x, bz = pred.z;
-    stepMove(pred, keys, yaw, DT, boxes);
+    lastVy = pred.vy;
+    stepMove(pred, keys, cmd.yaw, DT, boxes);
+    sprinting = (keys & KEY.SPRINT) !== 0 && (keys & KEY.FORWARD) !== 0 && !(keys & (KEY.AIM | KEY.FIRE)) && pred.onGround;
+    bloom = Math.max(0, bloom - BLOOM_RECOVERY);
     horizSpeed = Math.hypot(pred.x - bx, pred.z - bz) / DT;
     predictLocalFire(keys);
     footsteps(keys);
@@ -417,14 +449,14 @@ function fixedTick() {
 }
 
 function footsteps(keys: number) {
-  if (pred.onGround && !wasOnGround) sfx.land();
+  if (pred.onGround && !wasOnGround) { sfx.land(); landDip = Math.min(0.16, Math.max(0.03, -lastVy * 0.012)); }
   if ((keys & KEY.JUMP) && wasOnGround && !pred.onGround) sfx.jump();
   wasOnGround = pred.onGround;
   if (pred.onGround && horizSpeed > 1) {
     stepTimer -= DT;
     if (stepTimer <= 0) {
       sfx.step(pred.y < 0.05);
-      stepTimer = 0.36;
+      stepTimer = sprinting ? 0.27 : 0.36;
     }
   } else {
     stepTimer = 0.1;
@@ -451,22 +483,35 @@ function predictLocalFire(keys: number) {
   if (!trigger || localFireCooldown > 0 || me.reloading || me.switching || me.ammo <= 0) return;
   localFireCooldown = w.fireIntervalTicks;
   const ox = pred.x, oy = pred.y + EYE_HEIGHT, oz = pred.z;
+  const fx = weaponFx(loadout[me.weapon]);
   // Los perdigones y la dispersión de aquí son solo visuales: el servidor tira los suyos
+  const spread = currentSpread();
+  const ay = aimYaw(), ap = aimPitch();
   const hits = [];
   for (let k = 0; k < w.pellets; k++) {
-    const jy = (Math.random() * 2 - 1) * w.spread, jp = (Math.random() * 2 - 1) * w.spread;
-    const [dx, dy, dz] = aimDirection(yaw + jy, pitch + jp);
+    const jy = (Math.random() * 2 - 1) * spread, jp = (Math.random() * 2 - 1) * spread;
+    const [dx, dy, dz] = aimDirection(ay + jy, ap + jp);
     const hit = rayMapHit(ox, oy, oz, dx, dy, dz, w.range, boxes);
     const isWall = hit.t < w.range - 0.01;
     hits.push({ point: new THREE.Vector3(ox + dx * hit.t, oy + dy * hit.t, oz + dz * hit.t), normal: new THREE.Vector3(...hit.normal), kind: isWall ? hit.kind : null });
   }
-  world.localShot(hits, pred.y);
-  const cat = weaponModel(loadout[me.weapon])?.category;
-  if (cat === "pistol") sfx.pistol();
-  else if (cat === "shotgun") sfx.shotgun();
-  else if (cat === "sniper") sfx.sniper();
-  else sfx.shoot();
-  if (cat === "sniper" || cat === "shotgun") aiming = aiming && cat === "sniper";
+  world.localShot(hits, pred.y, fx);
+  sfx.weapon(fx);
+  // Retroceso: la mira sube y se desvía; apuntando se controla mejor
+  const control = (keys & KEY.AIM) ? 0.65 : 1;
+  recoilPitch += fx.recoilUp * control * (0.85 + Math.random() * 0.3);
+  recoilYaw += (Math.random() * 2 - 1) * fx.recoilSide * control;
+  shake = Math.min(0.05, shake + fx.shake);
+  bloom = Math.min(1, bloom + w.bloom);
+  // Escopetas y rifles de cerrojo: al disparar se sale de la mira
+  if (w.scope || fx.category === "shotgun") aiming = false;
+}
+
+/** Dispersión actual del arma en mano (misma fórmula que el servidor). */
+function currentSpread(): number {
+  return effectiveSpread(slotStats[me.weapon], {
+    aiming: aiming && !me.reloading && !me.switching, bloom, speed: Math.hypot(pred.vx ?? 0, pred.vz ?? 0), onGround: pred.onGround,
+  });
 }
 
 // ---------- Render ----------
@@ -519,9 +564,16 @@ function updateHud() {
   $("ammo").textContent = String(me.ammo);
   $("ammo-max").textContent = `/ ${w.magazine}`;
   $("weapon-name").textContent = (weaponModel(loadout[me.weapon])?.name ?? "").toUpperCase();
-  const zoom = aiming && me.alive && !me.reloading && me.weapon === 0 ? w.zoomFov : 0;
-  world.setZoom(zoom);
-  $("scope").classList.toggle("hidden", !(zoom > 0));
+  const zoomed = aiming && me.alive && !me.reloading && !me.switching;
+  // Al correr el campo de visión se abre un poco: da sensación de velocidad
+  world.setZoom(zoomed ? w.zoomFov : 0, sprinting ? 5 : 0);
+  $("scope").classList.toggle("hidden", !(zoomed && w.scope));
+  // Mira dinámica: se abre con la dispersión real del arma (movimiento, saltos y ráfagas)
+  const fovRad = (world.camera.fov * Math.PI) / 180;
+  const gap = Math.max(3, Math.min(90, (Math.tan(currentSpread()) / Math.tan(fovRad / 2)) * (window.innerHeight / 2)));
+  const ch = $("crosshair");
+  ch.style.setProperty("--gap", `${gap.toFixed(1)}px`);
+  ch.classList.toggle("ads", zoomed && !w.scope);
   $("slot-1").classList.toggle("active", me.weapon === 0);
   $("slot-2").classList.toggle("active", me.weapon === 1);
   $("reload").classList.toggle("hidden", !me.reloading);
@@ -584,10 +636,24 @@ function frame(now: number) {
   }
 
   correction.multiplyScalar(Math.pow(0.001, dt));
+  // El retroceso se recupera solo; la sacudida y el hundimiento al aterrizar se apagan
+  const rec = Math.pow(0.004, dt);
+  recoilPitch *= rec; recoilYaw *= rec;
+  shake *= Math.pow(0.0005, dt);
+  landDip *= Math.pow(0.0008, dt);
   const alpha = accumulator / DT;
   if (room) {
     const view = prevTickPos.clone().lerp(currTickPos, alpha).add(correction);
-    world.setView(view.x, view.y, view.z, yaw, pitch);
+    // Balanceo de la cámara al caminar (muy leve; casi nada apuntando)
+    const moving = me.alive && pred.onGround ? Math.min(1, horizSpeed / SPRINT_SPEED) : 0;
+    bobPhase += dt * (7 + moving * 6) * (moving > 0.05 ? 1 : 0);
+    const bobK = moving * (aiming ? 0.25 : 1);
+    const bobY = Math.sin(bobPhase * 2) * 0.022 * bobK, bobRoll = Math.sin(bobPhase) * 0.004 * bobK;
+    // Inclinación al moverse de lado
+    const side = (pred.vx ?? 0) * Math.cos(yaw) - (pred.vz ?? 0) * Math.sin(yaw);
+    strafeRoll += (-side * 0.0035 - strafeRoll) * Math.min(1, dt * 8);
+    const sh = shake * Math.sin(now * 0.09);
+    world.setView(view.x, view.y, view.z, aimYaw() + sh * 0.3, aimPitch() + sh * 0.2, strafeRoll + bobRoll + sh, bobY - landDip);
   } else {
     // Vista del menú: la cámara gira lentamente alrededor del mapa, por encima de los tejados.
     const a = now / 20000;
@@ -603,7 +669,9 @@ function frame(now: number) {
   world.render(dt, {
     speed: horizSpeed, onGround: pred.onGround, lookDX, lookDY,
     reloading: me.reloading, alive: !!room && me.alive,
-    aiming: aiming && me.weapon === 0 && slotStats[0].zoomFov > 0 && !me.reloading,
+    aiming: aiming && slotStats[me.weapon].scope && !me.reloading && !me.switching,
+    ads: aiming && !slotStats[me.weapon].scope && !me.reloading && !me.switching,
+    sprinting,
     reloadSeconds: slotStats[me.weapon].reloadTicks * DT,
   });
   lookDX = lookDY = 0;
@@ -626,7 +694,7 @@ if (import.meta.env.DEV || import.meta.env.VITE_DEBUG === "1") {
   Object.assign(window, {
     __game: {
       get pred() { return pred; }, get me() { return me; }, get myId() { return myId; },
-      get yaw() { return yaw; }, get pending() { return pending.length; }, get seq() { return seq; },
+      get yaw() { return yaw; }, get pitch() { return pitch; }, get recoil() { return [recoilPitch, recoilYaw, bloom, shake, landDip]; }, get pending() { return pending.length; }, get seq() { return seq; },
       look(y: number, p: number) { yaw = y; pitch = p; },
       get others() { return remoteBuffer.length ? [...remoteBuffer[remoteBuffer.length - 1].others.values()] : []; },
       fire(on: boolean) { mouseDown = on; },
