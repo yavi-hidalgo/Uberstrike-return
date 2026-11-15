@@ -622,7 +622,7 @@ function lerpAngle(a: number, b: number, t: number) {
 }
 
 // Solo en desarrollo: utilidades para depurar desde la consola del navegador.
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV || import.meta.env.VITE_DEBUG === "1") {
   Object.assign(window, {
     __game: {
       get pred() { return pred; }, get me() { return me; }, get myId() { return myId; },
