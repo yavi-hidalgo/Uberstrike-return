@@ -143,8 +143,18 @@ export class World {
       this.scene.environmentIntensity = 2.2;
       this.renderer.toneMappingExposure = 1.35;
       this.hemi.intensity = 1.7;
-      // Niebla nocturna entre los edificios
-      this.scene.fog = new THREE.FogExp2(0x1d2540, 0.012);
+      if (this.mapDef.indoor) {
+        // Interior: sin cielo ni montañas, luz artificial fría y algo de bruma
+        this.env.group.visible = false;
+        this.scene.background = new THREE.Color(0x05070c);
+        this.scene.fog = new THREE.FogExp2(0x0b1018, 0.018);
+        this.hemi.color.set(0xbfd4ff);
+        this.hemi.groundColor.set(0x3a3f4a);
+        this.hemi.intensity = 2.2;
+      } else {
+        // Niebla nocturna entre los edificios
+        this.scene.fog = new THREE.FogExp2(0x1d2540, 0.012);
+      }
       return;
     }
     // Objetos reales y reemplazo de las versiones generadas por código
@@ -197,7 +207,7 @@ export class World {
   private addMapLights() {
     const lights = this.mapDef.lights ?? [];
     const taken: THREE.Vector3[] = [];
-    const glowTex = softSprite("rgba(255,200,130,0.65)");
+    const glowTex = softSprite(this.mapDef.indoor ? "rgba(190,215,255,0.5)" : "rgba(255,200,130,0.65)");
     const max = this.quality === "high" ? 10 : this.quality === "medium" ? 6 : 0;
     for (const [x, y, z, lamp] of lights) {
       const p = new THREE.Vector3(x, y - (lamp ? 0.4 : 0.1), z);
@@ -208,7 +218,7 @@ export class World {
       glow.scale.setScalar(lamp ? 2.6 : 1.6);
       this.scene.add(glow);
       if (taken.length <= max) {
-        const l = new THREE.PointLight(0xffb870, lamp ? 60 : 25, lamp ? 24 : 12, 2);
+        const l = new THREE.PointLight(this.mapDef.indoor ? 0xcfe0ff : 0xffb870, lamp ? 60 : this.mapDef.indoor ? 45 : 25, lamp ? 24 : 16, 2);
         l.position.copy(p);
         this.scene.add(l);
       }

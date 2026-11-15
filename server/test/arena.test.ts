@@ -16,7 +16,7 @@ let server: Server;
 
 before(async () => {
   server = new Server({ transport: new WebSocketTransport() });
-  server.define("arena", ArenaRoom);
+  server.define("arena", ArenaRoom).filterBy(["map"]);
   await server.listen(PORT);
 });
 
@@ -258,4 +258,15 @@ test("mapa fábrica: se aparece en sitio libre, se camina y los muros tapan la v
   await sleep(200);
   assert.ok(Math.hypot(p.move.x - start.x, p.move.z - start.z) > 1, "debe poder caminar desde el punto de aparición");
   await room.leave();
+});
+
+test("mapas: cada mapa tiene su propia partida", async () => {
+  const c = new Client(`ws://localhost:${PORT}`);
+  const f = await c.joinOrCreate("arena", { name: "EnFabrica", map: "factory" });
+  const s2 = await c.joinOrCreate("arena", { name: "EnEstacion", map: "station" });
+  f.onMessage("*", () => {}); s2.onMessage("*", () => {});
+  assert.notEqual(f.roomId, s2.roomId, "la estación no debe compartir sala con la fábrica");
+  const r: any = matchMaker.getLocalRoomById(s2.roomId);
+  assert.equal(r.map.id, "station");
+  await f.leave(); await s2.leave();
 });

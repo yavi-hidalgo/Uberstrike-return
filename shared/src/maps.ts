@@ -4,6 +4,7 @@ import {
   type Box, type Pickup, type SpawnPoint,
 } from "./map";
 import factoryData from "./maps/factory.json";
+import stationData from "./maps/station.json";
 
 export interface MapDef {
   id: string;
@@ -14,6 +15,8 @@ export interface MapDef {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   /** Luces del escenario: [x, y, z, tipo] (1 = farola, 0 = foco). */
   lights?: [number, number, number, number][];
+  /** Interior (pasillos con techo): sin cielo ni montañas, luz artificial. */
+  indoor?: boolean;
   /** Escenario modelado (glTF). Si no hay, el cliente construye el mapa por código. */
   model?: { file: string; scale: number; groundOffset: number; credit: string; source: string };
 }
@@ -63,7 +66,33 @@ const factory: MapDef = {
   },
 };
 
-export const MAPS: Record<string, MapDef> = { factory, observatory };
+const sb = stationData.bounds;
+const stationBounds = { minX: sb[0][0], maxX: sb[1][0], minZ: sb[0][1], maxZ: sb[1][1] };
+const scx = (stationBounds.minX + stationBounds.maxX) / 2, scz = (stationBounds.minZ + stationBounds.maxZ) / 2;
+
+const station: MapDef = {
+  id: "station",
+  name: "Estación orbital",
+  boxes: [
+    ...stationData.boxes.map(([a, b, c, d, e, f]): Box => ({ min: [a, b, c], max: [d, e, f], kind: "metal", hidden: true })),
+    ...perimeter(stationBounds),
+  ],
+  spawns: stationData.spawns.map(([x, z]) => ({ x, z, yaw: Math.atan2(x - scx, z - scz) })),
+  pickups: stationData.pickups.map(([x, z], i) => ({
+    id: i + 1, type: "health" as const, x, y: 0, z, amount: i === 0 ? 50 : 30, respawnMs: i === 0 ? 20000 : 15000,
+  })),
+  bounds: stationBounds,
+  lights: stationData.lights.map((l) => [l[0], l[1], l[2], l[3]] as [number, number, number, number]),
+  indoor: true,
+  model: {
+    file: "station.glb", scale: stationData.scale, groundOffset: stationData.groundOffset,
+    credit: "Space Station Modular Assets de Josh", source: "https://sketchfab.com/3d-models/none-538f1b2403da4074ad7424f29974bae3",
+  },
+};
+
+export const MAPS: Record<string, MapDef> = { factory, station, observatory };
+/** Mapas que se pueden elegir en el menú. */
+export const PLAYABLE_MAPS = ["factory", "station"];
 export const DEFAULT_MAP = "factory";
 
 export function mapById(id: unknown): MapDef {

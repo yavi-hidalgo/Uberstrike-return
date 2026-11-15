@@ -12,7 +12,8 @@ const gameServer = new Server({
   }),
 });
 
-gameServer.define("arena", ArenaRoom);
+// Una partida distinta por mapa: quien elige la fábrica no cae en la estación
+gameServer.define("arena", ArenaRoom).filterBy(["map"]);
 
 gameServer.listen(port).then(() => {
   console.log(`Servidor de juego escuchando en ws://localhost:${port}`);

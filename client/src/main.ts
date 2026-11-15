@@ -14,7 +14,7 @@ import type {
   ShotMsg, SnapshotMsg, WelcomeMsg,
 } from "../../shared/src/protocol";
 import { World, loadQuality, type Quality } from "./world";
-import { DEFAULT_MAP, mapById } from "../../shared/src/maps";
+import { DEFAULT_MAP, MAPS, PLAYABLE_MAPS, mapById } from "../../shared/src/maps";
 import { sfx } from "./audio";
 
 // Dirección del servidor de juego. En producción se define con VITE_SERVER_URL.
@@ -29,7 +29,9 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const canvas = $<HTMLCanvasElement>("game");
 const quality = loadQuality();
 // Mapa: el de la URL (?map=...) o el predeterminado. Si el servidor usa otro, se recarga con ese.
-const mapDef = mapById(new URLSearchParams(location.search).get("map") ?? DEFAULT_MAP);
+let savedMap: string | null = null;
+try { savedMap = localStorage.getItem("arena.map"); } catch { /* sin storage */ }
+const mapDef = mapById(new URLSearchParams(location.search).get("map") ?? savedMap ?? DEFAULT_MAP);
 const boxes = mapDef.boxes;
 const world = new World(canvas, quality, mapDef);
 const worldReady = world.load();
@@ -83,7 +85,17 @@ const joinBtn = $<HTMLButtonElement>("join-btn");
 const menuError = $("menu-error");
 try { nameInput.value = localStorage.getItem("arena.name") ?? ""; } catch { /* sin storage */ }
 qualitySel.value = quality;
-$("map-name").textContent = `${mapDef.name} · noche`;
+$("map-name").textContent = mapDef.indoor ? mapDef.name : `${mapDef.name} · noche`;
+// Selector de mapa: cambiarlo recarga el juego con el mapa elegido
+const mapSel = $<HTMLSelectElement>("map-select");
+for (const id of PLAYABLE_MAPS) mapSel.append(new Option(MAPS[id].name, id));
+mapSel.value = mapDef.id;
+mapSel.addEventListener("change", () => {
+  try { localStorage.setItem("arena.map", mapSel.value); } catch { /* sin storage */ }
+  const url = new URL(location.href);
+  url.searchParams.set("map", mapSel.value);
+  location.href = url.toString();
+});
 qualitySel.addEventListener("change", () => {
   try { localStorage.setItem("arena.quality", qualitySel.value as Quality); } catch { /* sin storage */ }
   location.reload();

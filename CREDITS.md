@@ -70,6 +70,7 @@ Modelos descargados de sketchfab.com con licencia [CC BY 4.0](https://creativeco
 | Mapa | Modelo | Autor | Enlace |
 |---|---|---|---|
 | Fábrica abandonada | Abandoned factory | Pasha | [sketchfab](https://sketchfab.com/3d-models/none-c08537c06acd46bba24ad8251bcdf941) |
+| Estación orbital | Space Station Modular Assets (Student Work) | Josh | [sketchfab](https://sketchfab.com/3d-models/none-538f1b2403da4074ad7424f29974bae3) |
 
 El escenario se modificó: escalado a metros reales, texturas comprimidas a WebP y colisiones generadas automáticamente a partir de su geometría.
 
