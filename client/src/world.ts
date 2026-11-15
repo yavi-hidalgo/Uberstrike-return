@@ -1,7 +1,7 @@
 // Escena 3D: entorno, mapa, jugadores, arma, efectos y postprocesado.
 import * as THREE from "three";
 import {
-  BloomEffect, EffectComposer, EffectPass, RenderPass, SMAAEffect,
+  BloomEffect, EffectComposer, EffectPass, Pass, RenderPass, SMAAEffect,
   ToneMappingEffect, ToneMappingMode, VignetteEffect, type Effect,
 } from "postprocessing";
 import { EYE_HEIGHT } from "../../shared/src/constants";
@@ -21,6 +21,23 @@ import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 export type Quality = "low" | "medium" | "high";
+
+/** Dibuja el arma encima del escenario dentro de la cadena de postprocesado (suavizado, brillo...). */
+class WeaponPass extends Pass {
+  constructor(private wScene: THREE.Scene, private wCamera: THREE.Camera, private isVisible: () => boolean) {
+    super("WeaponPass");
+    this.needsSwap = false;
+  }
+  render(renderer: THREE.WebGLRenderer, inputBuffer: THREE.WebGLRenderTarget) {
+    if (!this.isVisible()) return;
+    const auto = renderer.autoClear;
+    renderer.autoClear = false;
+    renderer.setRenderTarget(this.renderToScreen ? null : inputBuffer);
+    renderer.clearDepth();
+    renderer.render(this.wScene, this.wCamera);
+    renderer.autoClear = auto;
+  }
+}
 
 export function loadQuality(): Quality {
   try {
@@ -110,6 +127,7 @@ export class World {
     if (usePost) {
       this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType });
       this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.composer.addPass(new WeaponPass(this.weaponScene, this.weaponCamera, () => this.weapon.root.visible));
       const effects: Effect[] = [
         new BloomEffect({ intensity: 1.1, luminanceThreshold: 0.75, luminanceSmoothing: 0.2, mipmapBlur: true, radius: 0.7 }),
         new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }),
@@ -407,8 +425,8 @@ export class World {
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
 
-    // Segunda pasada: el arma encima del mundo, con su propia luz
-    if (this.weapon.root.visible) {
+    // Sin postprocesado (calidad baja): el arma se dibuja aquí en una segunda pasada
+    if (!this.composer && this.weapon.root.visible) {
       const r = this.renderer;
       const prevTone = r.toneMapping;
       r.autoClear = false;

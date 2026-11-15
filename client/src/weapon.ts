@@ -217,7 +217,7 @@ export class ShotEffects {
 /** Arma en primera persona: balanceo al caminar, inercia, retroceso, recarga, cambio de arma y fogonazo. */
 export class ViewWeapon {
   readonly root = new THREE.Group(); // colgado de la cámara
-  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number; arms?: ArmsViewModel } | null)[] = [null, null];
+  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number; yaw?: number; roll?: number; pitch?: number; arms?: ArmsViewModel } | null)[] = [null, null];
   private wasReloading = false;
   private current = 0;
   private flash: THREE.Group;
@@ -262,11 +262,14 @@ export class ViewWeapon {
     group.add(muzzle, ejector);
     const len = anchors.size.z;
     const pistol = len < 0.4;
-    // La parte trasera del arma queda a ~10 cm de la cámara; las largas se ven más a la derecha
-    const base = new THREE.Vector3(pistol ? 0.12 : 0.15, -0.085 - anchors.box.max.y - (pistol ? 0.03 : 0), -(0.1 + len / 2));
+    // Encuadre: la parte trasera del arma cerca de la cámara, el borde superior un poco por debajo
+    // del centro de la pantalla y girada unos grados hacia dentro para que se vea su costado.
+    const rear = pistol ? 0.13 : 0.05;
+    const top = pistol ? 0.06 : 0.045;
+    const base = new THREE.Vector3(pistol ? 0.1 : 0.14, -top - anchors.box.max.y, -(rear + len / 2));
     group.visible = slot === this.current;
     this.root.add(group);
-    this.slots[slot] = { group, muzzle, ejector, base, kick: pistol ? 0.14 : len > 1.05 ? 0.1 : 0.06 };
+    this.slots[slot] = { group, muzzle, ejector, base, kick: pistol ? 0.14 : len > 1.05 ? 0.1 : 0.06, yaw: pistol ? 0.28 : 0.32, roll: -0.07, pitch: -0.06 };
     if (slot === this.current) this.attachFlash();
   }
 
@@ -349,7 +352,12 @@ export class ViewWeapon {
       b.y - bobY + this.sway.y - this.reloadT * 0.12 - this.switchT * 0.25 - this.aimT * 0.1 + (opts.onGround ? 0 : -0.015),
       b.z + k * 0.045,
     );
-    this.root.rotation.set(k * a.kick + this.reloadT * -0.6 - this.switchT * 0.8, this.sway.x * 1.5, this.reloadT * 0.5 + bobX * 2);
+    const aimK = 1 - this.aimT;
+    this.root.rotation.set(
+      k * a.kick + this.reloadT * -0.6 - this.switchT * 0.8 + (a.pitch ?? 0) * aimK,
+      this.sway.x * 1.5 + (a.yaw ?? 0) * aimK,
+      this.reloadT * 0.5 + bobX * 2 + (a.roll ?? 0) * aimK,
+    );
 
     this.flashTime -= dt;
     if (this.flashTime <= 0) {

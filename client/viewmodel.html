@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="UTF-8" /><title>Encuadre de armas</title></head>
+<body style="margin:0;background:#111">
+<!-- Herramienta de desarrollo: muestra varias armas tal como se ven en primera persona.
+     Uso: /viewmodel.html?ids=f32fe06215,cdefd833b4  (sin ids muestra una de cada tipo) -->
+<canvas id="out"></canvas>
+<script type="module">
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { ViewWeapon } from "/src/weapon.ts";
+import { weaponAnchors, weaponObject } from "/src/weaponmodels.ts";
+import { loadPropModels } from "/src/props.ts";
+import { WEAPON_MODELS } from "../shared/src/weapons.ts";
+
+const q = new URLSearchParams(location.search);
+const ids = (q.get("ids") || "").split(",").filter(Boolean);
+const list = ids.length ? ids : ["service_pistol", "f32fe06215", "9084c3bae8", "6db0ad4764", "a556c647ec", "cdefd833b4", "2d1bef3aa9", "6b2015ec3b", "fab28aeb14"];
+const W = 640, H = 360, cols = 3;
+const out = document.getElementById("out");
+out.width = W * cols; out.height = H * Math.ceil(list.length / cols);
+const ctx = out.getContext("2d");
+const canvas = document.createElement("canvas"); canvas.width = W; canvas.height = H;
+const r = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
+await loadPropModels();
+for (let i = 0; i < list.length; i++) {
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x3a4658);
+  const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.55;
+  const key = new THREE.DirectionalLight(0xdfe8ff, 2.2); key.position.set(-1, 2, 1.5);
+  const fill = new THREE.DirectionalLight(0xffd2a0, 0.5); fill.position.set(2, 0.5, 1);
+  const rim = new THREE.DirectionalLight(0x9fc0ff, 1.4); rim.position.set(1, 1, -2);
+  scene.add(key, fill, rim, new THREE.AmbientLight(0x404a60, 0.6));
+  const cam = new THREE.PerspectiveCamera(60, W / H, 0.01, 20);
+  const vw = new ViewWeapon();
+  scene.add(vw.root);
+  const o = await weaponObject(list[i]);
+  if (o) vw.setSlotModel(0, o, weaponAnchors(o));
+  vw.update(0.016, { speed: 0, onGround: true, lookDX: 0, lookDY: 0, reloading: false, visible: true, aiming: false });
+  r.render(scene, cam);
+  ctx.drawImage(canvas, (i % cols) * W, Math.floor(i / cols) * H);
+  ctx.fillStyle = "#fff"; ctx.font = "16px sans-serif";
+  ctx.fillText(WEAPON_MODELS.find((w) => w.id === list[i])?.name ?? list[i], (i % cols) * W + 8, Math.floor(i / cols) * H + 22);
+  // cruz en el centro de la pantalla
+  ctx.strokeStyle = "rgba(255,255,255,0.6)"; const cx = (i % cols) * W + W / 2, cy = Math.floor(i / cols) * H + H / 2;
+  ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8); ctx.stroke();
+}
+window.__done = true;
+</script>
+</body>
+</html>
