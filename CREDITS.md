@@ -82,3 +82,13 @@ El escenario se modificó: escalado a metros reales, texturas comprimidas a WebP
 | FPS animations sniper rifle | Cransh | [sketchfab](https://sketchfab.com/3d-models/none-c15ae8393d824f5b929e3f69691cdd31) |
 
 Se modificaron: texturas comprimidas a WebP y encuadre calculado a partir del esqueleto.
+
+## Soldados (CC Attribution 4.0)
+
+| Modelo | Autor | Enlace |
+|---|---|---|
+| S.W.A.T. Operator | SpatialNeglect | [sketchfab](https://sketchfab.com/3d-models/none-9e82fabf26194896b5ad4a364d864eab) |
+| FSB Operator | SpatialNeglect | [sketchfab](https://sketchfab.com/3d-models/none-43a561e941704eefb1ab0614be4f0049) |
+| Soldier Full Tactical Gear (LowPolyGameReady) | DanlyVostok | [sketchfab](https://sketchfab.com/3d-models/none-850593a8c7114c188395ba1849a66eb9) |
+
+Se modificaron: geometría reducida, texturas comprimidas a WebP, y animación de caminar, correr, saltar y caer añadida por código sobre su pose de reposo.

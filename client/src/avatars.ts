@@ -1,4 +1,5 @@
-// Jugadores remotos: robot animado (modelo CC0 de Quaternius) teñido por jugador.
+// Jugadores remotos: soldados de Sketchfab (CC BY) animados por código encima de su pose de reposo.
+// Si no cargan, se usa el robot animado (CC0, Quaternius).
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
@@ -16,6 +17,40 @@ export async function loadAvatarModel(url: string): Promise<void> {
   const h = box.max.y - box.min.y;
   templateScale = h > 0 ? (PLAYER_HEIGHT * 0.98) / h : 1;
 }
+
+// ---------- Soldados ----------
+interface SoldierTemplate { gltf: GLTF; scale: number; offset: THREE.Vector3; hasGun: boolean }
+const soldiers: SoldierTemplate[] = [];
+
+/** Carga los soldados. `hasGun`: el modelo ya trae su rifle en las manos. */
+export async function loadSoldierModels(list: { url: string; hasGun: boolean }[]): Promise<void> {
+  const { MeshoptDecoder } = await import("three/addons/libs/meshopt_decoder.module.js");
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  await Promise.all(list.map(async ({ url, hasGun }) => {
+    try {
+      const gltf = await loader.loadAsync(url);
+      // Tamaño en la pose de reposo (con los huesos aplicados)
+      const mixer = new THREE.AnimationMixer(gltf.scene);
+      if (gltf.animations[0]) { mixer.clipAction(gltf.animations[0]).play(); mixer.setTime(0.5); }
+      gltf.scene.updateMatrixWorld(true);
+      const box = new THREE.Box3();
+      gltf.scene.traverse((o) => {
+        const sm = o as THREE.SkinnedMesh;
+        if (sm.isSkinnedMesh) { sm.computeBoundingBox(); box.union(sm.boundingBox!.clone().applyMatrix4(sm.matrixWorld)); }
+        else if ((o as THREE.Mesh).isMesh) box.expandByObject(o);
+      });
+      const h = box.max.y - box.min.y || 1;
+      const scale = PLAYER_HEIGHT / h;
+      const offset = new THREE.Vector3(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2).multiplyScalar(scale);
+      soldiers.push({ gltf, scale, offset, hasGun });
+    } catch (e) {
+      console.warn("No se pudo cargar un soldado", url, e);
+    }
+  }));
+}
+
+interface Legs { thighL: THREE.Bone; thighR: THREE.Bone; kneeL: THREE.Bone | null; kneeR: THREE.Bone | null }
 
 function makeTag(name: string, hp: number): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -58,11 +93,45 @@ export class Avatar {
   name: string;
   weaponId = "";
   private weaponHolder = new THREE.Group();
+  private legs: Legs | null = null;
+  private stride = 0;
+  private body: THREE.Object3D | null = null;
+  private fallT = 0;
 
   constructor(readonly id: number, name: string) {
     this.name = name;
     const color = new THREE.Color(PLAYER_COLORS[id % PLAYER_COLORS.length]);
-    if (template) {
+    if (soldiers.length) {
+      const t = soldiers[id % soldiers.length];
+      const model = SkeletonUtils.clone(t.gltf.scene) as THREE.Object3D;
+      model.scale.multiplyScalar(t.scale);
+      model.position.copy(t.offset);
+      const body = new THREE.Group();
+      body.add(model);
+      body.rotation.y = Math.PI; // los soldados miran hacia +Z; el juego usa -Z
+      this.body = body;
+      this.group.add(body);
+      model.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.castShadow = true;
+        m.receiveShadow = true;
+        m.frustumCulled = false; // la caja de los modelos con esqueleto no se actualiza al animar
+      });
+      this.mixer = new THREE.AnimationMixer(model);
+      const idle = t.gltf.animations[0];
+      if (idle) {
+        const a = this.mixer.clipAction(idle);
+        a.time = Math.random() * idle.duration; // que no respiren todos a la vez
+        a.play();
+        this.actions.set("Idle", a);
+        this.current = "Idle";
+      }
+      const bone = (re: RegExp) => { let f: THREE.Bone | null = null; model.traverse((o) => { if (!f && (o as THREE.Bone).isBone && re.test(o.name)) f = o as THREE.Bone; }); return f as THREE.Bone | null; };
+      const thighL = bone(/(LeftUpLeg|L_Thigh)/), thighR = bone(/(RightUpLeg|R_Thigh)/);
+      if (thighL && thighR) this.legs = { thighL, thighR, kneeL: bone(/(LeftLeg|L_Calf)/), kneeR: bone(/(RightLeg|R_Calf)/) };
+      this.weaponHolder.visible = !t.hasGun; // si el soldado ya trae su rifle, no ponemos otro
+    } else if (template) {
       const model = SkeletonUtils.clone(template.scene) as THREE.Object3D;
       model.scale.setScalar(templateScale);
       model.rotation.y = Math.PI; // el modelo mira hacia +Z; el juego usa -Z
@@ -166,9 +235,44 @@ export class Avatar {
     this.dyingUntil = performance.now() + 2200;
     this.play("Death", 0.1);
     this.tag.visible = false;
+    this.fallT = 0.0001;
+  }
+
+  /** Paso de caminar/correr y salto, sumados a la pose que dejó la animación de reposo. */
+  private animateLegs(dt: number) {
+    if (!this.legs) return;
+    const airborne = Math.abs(this.vy) > 1.2;
+    const sp = Math.min(this.speed, 8);
+    this.stride += dt * (2 + sp * 1.1);
+    const amp = airborne ? 0 : Math.min(0.6, sp * 0.08);
+    const s = Math.sin(this.stride * Math.PI);
+    const X = new THREE.Vector3(1, 0, 0);
+    const rot = (b: THREE.Bone | null, a: number) => { if (b && a) b.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(X, a)); };
+    const tuck = airborne ? 0.5 : 0;
+    rot(this.legs.thighL, s * amp + tuck);
+    rot(this.legs.thighR, -s * amp + tuck * 0.6);
+    rot(this.legs.kneeL, -(Math.max(0, -s) * amp * 1.4 + tuck * 1.2));
+    rot(this.legs.kneeR, -(Math.max(0, s) * amp * 1.4 + tuck));
+    // pequeño rebote del cuerpo al caminar
+    if (this.body) this.body.position.y = -Math.abs(Math.cos(this.stride * Math.PI)) * amp * 0.06;
+  }
+
+  /** Caída al morir: el cuerpo se inclina hacia atrás y cae al suelo. */
+  private animateFall(dt: number) {
+    if (!this.body || this.fallT <= 0) return;
+    this.fallT = Math.min(1, this.fallT + dt * 2.2);
+    const e = this.fallT * this.fallT;
+    this.body.rotation.x = e * (Math.PI / 2 - 0.1);
+    this.body.position.y = -e * 0.15;
   }
 
   update(dt: number) {
+    if (this.body) {
+      this.mixer?.update(dt);
+      if (this.dyingUntil === 0) { this.tag.visible = true; this.animateLegs(dt); }
+      else this.animateFall(dt);
+      return;
+    }
     if (this.dyingUntil === 0) {
       this.tag.visible = true;
       if (Math.abs(this.vy) > 1.2) this.play("Jump", 0.15);
@@ -182,6 +286,12 @@ export class Avatar {
   revive() {
     this.dyingUntil = 0;
     this.hasPose = false;
+    this.fallT = 0;
+    if (this.body) {
+      this.body.rotation.x = 0;
+      this.body.position.y = 0;
+      return;
+    }
     this.current = null;
     this.actions.forEach((a) => a.stop());
     this.play("Idle", 0);
