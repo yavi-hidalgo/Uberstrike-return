@@ -12,6 +12,8 @@ export interface MapDef {
   spawns: SpawnPoint[];
   pickups: Pickup[];
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  /** Luces del escenario: [x, y, z, tipo] (1 = farola, 0 = foco). */
+  lights?: [number, number, number, number][];
   /** Escenario modelado (glTF). Si no hay, el cliente construye el mapa por código. */
   model?: { file: string; scale: number; groundOffset: number; credit: string; source: string };
 }
@@ -54,6 +56,7 @@ const factory: MapDef = {
     id: i + 1, type: "health" as const, x, y: 0, z, amount: i === 0 ? 50 : 30, respawnMs: i === 0 ? 20000 : 15000,
   })),
   bounds: factoryBounds,
+  lights: ((factoryData as { lights?: number[][] }).lights ?? []).map((l) => [l[0], l[1], l[2], l[3]] as [number, number, number, number]),
   model: {
     file: "factory.glb", scale: factoryData.scale, groundOffset: factoryData.groundOffset,
     credit: "Abandoned factory de Pasha", source: "https://sketchfab.com/3d-models/none-c08537c06acd46bba24ad8251bcdf941",

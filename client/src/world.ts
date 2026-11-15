@@ -15,6 +15,7 @@ import { Avatar, loadAvatarModel, loadSoldierModels } from "./avatars";
 import { buildProps, hasModel, loadPropModels } from "./props";
 import { weaponAnchors, weaponObject } from "./weaponmodels";
 import { ArmsViewModel } from "./fparms";
+import { softSprite } from "./textures";
 import { weaponModel } from "../../shared/src/weapons";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -142,6 +143,8 @@ export class World {
       this.scene.environmentIntensity = 2.2;
       this.renderer.toneMappingExposure = 1.35;
       this.hemi.intensity = 1.7;
+      // Niebla nocturna entre los edificios
+      this.scene.fog = new THREE.FogExp2(0x1d2540, 0.012);
       return;
     }
     // Objetos reales y reemplazo de las versiones generadas por código
@@ -173,6 +176,9 @@ export class World {
       for (const mat of mats) {
         const sm = mat as THREE.MeshStandardMaterial;
         if (sm.map) sm.map.anisotropy = 8;
+        // Lámparas encendidas y ventanas con algo de luz interior
+        if (/^(Lights|LampPosts)/i.test(sm.name)) { sm.emissive = new THREE.Color(0xffc27a); sm.emissiveIntensity = /^Lights/i.test(sm.name) ? 2.5 : 0.25; }
+        if (/Windows/i.test(sm.name)) { sm.emissive = new THREE.Color(0x4a3418); sm.emissiveIntensity = 0.55; sm.emissiveMap = sm.map; }
         // Vallas, rejas, cables y carteles usan el canal alfa de la textura: recorte nítido
         // (también proyecta sombras con su forma) en lugar de mezcla, que se ordena mal.
         if (sm.transparent || sm.alphaTest > 0) {
@@ -184,6 +190,29 @@ export class World {
       }
     });
     this.scene.add(root);
+    this.addMapLights();
+  }
+
+  /** Luz cálida en cada farola y foco del escenario (solo en calidad media y alta). */
+  private addMapLights() {
+    const lights = this.mapDef.lights ?? [];
+    const taken: THREE.Vector3[] = [];
+    const glowTex = softSprite("rgba(255,200,130,0.65)");
+    const max = this.quality === "high" ? 10 : this.quality === "medium" ? 6 : 0;
+    for (const [x, y, z, lamp] of lights) {
+      const p = new THREE.Vector3(x, y - (lamp ? 0.4 : 0.1), z);
+      if (taken.some((q) => q.distanceTo(p) < 1.5)) continue;
+      taken.push(p);
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      glow.position.copy(p);
+      glow.scale.setScalar(lamp ? 2.6 : 1.6);
+      this.scene.add(glow);
+      if (taken.length <= max) {
+        const l = new THREE.PointLight(0xffb870, lamp ? 60 : 25, lamp ? 24 : 12, 2);
+        l.position.copy(p);
+        this.scene.add(l);
+      }
+    }
   }
 
   /** Carga y coloca en primera persona el arma principal y la pistola elegidas. */
