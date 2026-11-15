@@ -17,51 +17,68 @@ Recursos de terceros, todos con licencias libres:
 
 ## Armas de Sketchfab (CC Attribution 4.0)
 
-Modelos descargados de sketchfab.com con licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Se modificaron: orientación y escala normalizadas, texturas comprimidas a WebP y, en algunos, geometría reducida o piezas sueltas eliminadas.
+| Arma | Tipo | Autor | Enlace |
+|---|---|---|---|
+| AR-181 | Rifle | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-f32fe06215434fb2a159d29343079a1e) |
+| AR-H470 | Rifle | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-4b38c160243743d681d6fdaf3bd77ddb) |
+| Sci-Fi AK Rifle gameready | Rifle | Egor Likhachev | [sketchfab](https://sketchfab.com/3d-models/none-2d0d3410970d49c6865d00be15048f72) |
+| Sci-Fi Rifle | Rifle | valterjherson1 | [sketchfab](https://sketchfab.com/3d-models/none-64a4261215724f2bbe083ad916d4f770) |
+| Sci-fi Assault Riffle | Rifle | Fearell | [sketchfab](https://sketchfab.com/3d-models/none-9fcfabb9cf5d4135bcb222f377de9a39) |
+| U-Rifle | Rifle | valerij1987 | [sketchfab](https://sketchfab.com/3d-models/none-5fc3a77cb8de4f5bb01d5fa1b34c5b6c) |
+| Apec Tactical SMG | Subfusil | ROHIT3DMODELS | [sketchfab](https://sketchfab.com/3d-models/none-2e9bf758703847c88d854fa204384203) |
+| SMG-M32 | Subfusil | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-3a5f98f75e804e5888379cbe640cc883) |
+| VECTOR-P22 | Subfusil | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-6b2015ec3bbd4e959487135493769190) |
+| Quad Barrel Shotgun | Escopeta | soidev | [sketchfab](https://sketchfab.com/3d-models/none-a564c7b0d4194577baf49e6c5066635d) |
+| Remington 870 Shotgun | Escopeta | Andrei Milin | [sketchfab](https://sketchfab.com/3d-models/none-6db0ad4764d14eee8f063eea3600071b) |
+| Dystopian Shotgun 24g | Escopeta | Igor.Jop | [sketchfab](https://sketchfab.com/3d-models/none-0d654ecfd3164c68a624c6d42b0abe6e) |
+| Quad Barrel Plasma Gun | Escopeta | curichenkow | [sketchfab](https://sketchfab.com/3d-models/none-11d18396863242a19e29e0259755bfa9) |
+| Sci-fi Super Shotgun | Escopeta | tnnv | [sketchfab](https://sketchfab.com/3d-models/none-5929e6949d1e421e927116e117248f07) |
+| R7-X Sniper | Francotirador | Bl4ckGh0st | [sketchfab](https://sketchfab.com/3d-models/none-d6861fe22edf4b4884e87daa66d7deea) |
+| RENEGADE Rail Gun | Francotirador | Bl4ckGh0st | [sketchfab](https://sketchfab.com/3d-models/none-1bfcf07c52914e55a5853e6835d917f5) |
+| Sci-FI Sniper Rifle | Francotirador | Matija Švaco | [sketchfab](https://sketchfab.com/3d-models/none-2d1bef3aa9ae47c5aee26cc3f032ab31) |
+| Sniper Railgun Mk-3 | Francotirador | ReiSakisaka | [sketchfab](https://sketchfab.com/3d-models/none-dafa37e0394b44399929aced2dbcd264) |
+| Sci-fi pistol | Pistola | Eugen Vahrushin | [sketchfab](https://sketchfab.com/3d-models/none-c23394d709d14772adf355da84408edc) |
+| Honey Badger | Rifle | bagusmars | [sketchfab](https://sketchfab.com/3d-models/none-0328770df6fb4496ace40192b9d3793f) |
+| ARM-A1 | Rifle | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-187a36444ab646438cff3ef1f6fa90db) |
+| Sci-fi rifle M13-Gaus | Rifle | DigitalTales | [sketchfab](https://sketchfab.com/3d-models/none-648847589fec4ecc9b91d7cdcc9c4d84) |
+| Subfusil futurista | Subfusil | Anatomy by Doctor Jana | [sketchfab](https://sketchfab.com/3d-models/none-39f1767e68834396b9ea1beea41c0abf) |
+| Minebea PM-9 | Subfusil | 8sianDude | [sketchfab](https://sketchfab.com/3d-models/none-9f37aafc02f44e07967703c30e0ec22b) |
+| SV-98M Sniper rifle | Francotirador | AlexFinsher | [sketchfab](https://sketchfab.com/3d-models/none-bf79b7f1d4304123823bb345848de80f) |
+| Desert Eagle | Pistola | javadbayat | [sketchfab](https://sketchfab.com/3d-models/none-32838f1430494894911b077ab281b6a7) |
+| Bullpup Revolver | Pistola | igor.tesV | [sketchfab](https://sketchfab.com/3d-models/none-a2f03e4836124c82a69098dd09fa726c) |
+| Revólver Navy Colt 1851 | Pistola | Johan Pindeville | [sketchfab](https://sketchfab.com/3d-models/none-c254bb8ee01a4d9db9e6bbdc652d6c11) |
+| Revólver | Pistola | Mik Santos | [sketchfab](https://sketchfab.com/3d-models/none-6e62a5c020024d47aac3782910e40d13) |
+| Katana Oni Koroshi | Arma blanca | Sky_Hunter | [sketchfab](https://sketchfab.com/3d-models/none-778d3dfe4cc549dd93c9bdc5ad78a420) |
+| Soulsucker | Arma blanca | tuomaspaul | [sketchfab](https://sketchfab.com/3d-models/none-6b27a5a86dad4d13a6ff02ab5a1dcbce) |
+| Bate con clavos | Arma blanca | _ | [sketchfab](https://sketchfab.com/3d-models/none-425e6efd8d81408fa63ff2c2962840d1) |
+| Palanca | Arma blanca | Superior | [sketchfab](https://sketchfab.com/3d-models/none-75ba882dd7114eca8d58b73e303cd269) |
+| Levitron, espadón | Arma blanca | Wawann | [sketchfab](https://sketchfab.com/3d-models/none-b91d50762282401cacbdbf8e563f8a4c) |
+| Bate | Arma blanca | Pablo88 | [sketchfab](https://sketchfab.com/3d-models/none-48095b439ec5464db93337b2c3457fcc) |
+| Machete | Arma blanca | Belonosoff | [sketchfab](https://sketchfab.com/3d-models/none-340a3bed238f48b0aa169c38e1e75066) |
+| Katana No Name | Arma blanca | Wawann | [sketchfab](https://sketchfab.com/3d-models/none-80d9caaa1fa04502af666135196456e1) |
+| Espadón futurista | Arma blanca | Kai Xiang | [sketchfab](https://sketchfab.com/3d-models/none-d0c12e5781b7400fb8268452cde79533) |
+| Neon Blade | Arma blanca | Wawann | [sketchfab](https://sketchfab.com/3d-models/none-e3caffae38ff43aea3476cea700b6a00) |
+| Pala vieja | Arma blanca | Oliver Triplett | [sketchfab](https://sketchfab.com/3d-models/none-5ea945cb4d9a4bd387fb9d6ed74527f1) |
+| Espada futurista | Arma blanca | mazazaker | [sketchfab](https://sketchfab.com/3d-models/none-0c15905a8d51444b91a20ba2c311fbc2) |
+| Katana futurista | Arma blanca | SkillingBlack21 | [sketchfab](https://sketchfab.com/3d-models/none-23975f3cbb484a91b8c699a5bae9f1f8) |
+| Pala | Arma blanca | MaX3Dd | [sketchfab](https://sketchfab.com/3d-models/none-a402ec2c06d04bd09b301c2a76d2f630) |
+| Khopesh futurista | Arma blanca | valterjherson1 | [sketchfab](https://sketchfab.com/3d-models/none-b60ea3fea9fa4cecbbdb47b37db64f25) |
+| Lightgun improvisado | Cañón | Christian Rudorff | [sketchfab](https://sketchfab.com/3d-models/none-e2c072b89454484bace2b7675f7577a2) |
+| Minigun M134 | Cañón | Alexander_Borisevich | [sketchfab](https://sketchfab.com/3d-models/none-8f008c3e18934707a834cde8c72364f5) |
+| Minigun futurista | Cañón | Andy B | [sketchfab](https://sketchfab.com/3d-models/none-3cc4cac6aa614f0fbe4a0c46db2a2c8e) |
+| Capsule Gun | Cañón | sc8di | [sketchfab](https://sketchfab.com/3d-models/none-3639c42106334abab57d0592dae745df) |
+| C.A.T. Launcher 8999 | Cañón | andrea.notarstefano | [sketchfab](https://sketchfab.com/3d-models/none-aeaf541086c441a899cbcbcd2b687f7a) |
+| Bazuca | Cañón | Shaz | [sketchfab](https://sketchfab.com/3d-models/none-bf7d92ee041b4506973841f46b14ce62) |
+| Cañón de mano Graviton | Cañón | Discover | [sketchfab](https://sketchfab.com/3d-models/none-abfb7b6e09584a52a13d36739ceb0e71) |
+| Cañón Scifi | Cañón | re1monsen | [sketchfab](https://sketchfab.com/3d-models/none-ca4d7709f49c45eeb4ffb5970c8c96d6) |
+| Rayo láser EM-90A2 | Cañón | Pippa | [sketchfab](https://sketchfab.com/3d-models/none-a8f7b774646a468ea2e4b411ef8c821a) |
+| Hand Cannon | Cañón | radka.t | [sketchfab](https://sketchfab.com/3d-models/none-bdebc830eab546bdb87c5026d02dfbfd) |
+| Cañón de riel | Cañón | Rzyas | [sketchfab](https://sketchfab.com/3d-models/none-eb154eac33bc4b5ebda83ea4652949fe) |
+| Lanzacohetes | Cañón | Miguel Adão | [sketchfab](https://sketchfab.com/3d-models/none-77918335d5554fbbb262f9b029a47267) |
+| Cañón de riel 02 | Cañón | eyewhel3 | [sketchfab](https://sketchfab.com/3d-models/none-9b3ee25dad804064854bf0cedfddb11c) |
+| Mk-1 | Cañón | o0ozexo0o | [sketchfab](https://sketchfab.com/3d-models/none-76590a6aabe6413f86c534496764df2d) |
 
-| Modelo | Autor | Enlace |
-|---|---|---|
-| Pistol | SINNIK | [sketchfab](https://sketchfab.com/3d-models/none-54c52df11e164b42992a7d418d99cd3f) |
-| Sci-Fi Pistol | Andrei Milin | [sketchfab](https://sketchfab.com/3d-models/none-fab28aeb14894752b49149ef00926aff) |
-| Sci-Fi Style Pneumatic Revolver RX-ZCS | valterjherson1 | [sketchfab](https://sketchfab.com/3d-models/none-a454d9835c7344f59676b76d8f2dfdf7) |
-| Sci-fi pistol | Eugen Vahrushin | [sketchfab](https://sketchfab.com/3d-models/none-c23394d709d14772adf355da84408edc) |
-| AK-74M Assault Rifle | FJH | [sketchfab](https://sketchfab.com/3d-models/none-9084c3bae8224d338103997bc3101480) |
-| AR-181 | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-f32fe06215434fb2a159d29343079a1e) |
-| AR-H470 | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-4b38c160243743d681d6fdaf3bd77ddb) |
-| AR77-90 | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-dafa264a92344b8e98277267b532ba79) |
-| Heavy Assault Rifle | valerij1987 | [sketchfab](https://sketchfab.com/3d-models/none-1b91aca44b65417f957d9ec30ce8ee19) |
-| Low poly sci fi Reaper impulse assault rifle | Alexandr33D | [sketchfab](https://sketchfab.com/3d-models/none-35faa51cc8e74b489f875e858ab64cc0) |
-| REPULZIVE PULZER | Vijaysarathi | [sketchfab](https://sketchfab.com/3d-models/none-b569366927f54b4db69cd93bc6e96ebf) |
-| Sci Fi Weapon. Gameready Gun / Rifle. | gbarzu | [sketchfab](https://sketchfab.com/3d-models/none-eca46c628f49410081eb73391c62b4ca) |
-| Sci-Fi AK Rifle gameready (Free) | Egor Likhachev | [sketchfab](https://sketchfab.com/3d-models/none-2d0d3410970d49c6865d00be15048f72) |
-| Sci-Fi Rifle | ul1tka | [sketchfab](https://sketchfab.com/3d-models/none-648a72a0046a4d059cd850f32f30f4ce) |
-| Sci-Fi Rifle | valterjherson1 | [sketchfab](https://sketchfab.com/3d-models/none-64a4261215724f2bbe083ad916d4f770) |
-| Sci-fi Assault Riffle | Fearell | [sketchfab](https://sketchfab.com/3d-models/none-9fcfabb9cf5d4135bcb222f377de9a39) |
-| U-Rifle | valerij1987 | [sketchfab](https://sketchfab.com/3d-models/none-5fc3a77cb8de4f5bb01d5fa1b34c5b6c) |
-| Quad Barrel Shotgun | soidev | [sketchfab](https://sketchfab.com/3d-models/none-a564c7b0d4194577baf49e6c5066635d) |
-| Remington 870 Shotgun | Andrei Milin | [sketchfab](https://sketchfab.com/3d-models/none-6db0ad4764d14eee8f063eea3600071b) |
-| Shotgun Benelli M4 | drollShark | [sketchfab](https://sketchfab.com/3d-models/none-e0d23db5a8b64ff2980875834b425c4b) |
-| Dystopian Shotgun 24g | Igor.Jop | [sketchfab](https://sketchfab.com/3d-models/none-0d654ecfd3164c68a624c6d42b0abe6e) |
-| Prototype Energy Shotgun | Rew | [sketchfab](https://sketchfab.com/3d-models/none-a556c647ecb74f2787007593cc9955f7) |
-| Quad Barrel Plasma Gun | curichenkow | [sketchfab](https://sketchfab.com/3d-models/none-11d18396863242a19e29e0259755bfa9) |
-| Sci-fi Super Shotgun | tnnv | [sketchfab](https://sketchfab.com/3d-models/none-5929e6949d1e421e927116e117248f07) |
-| Scifi Shotgun | willdudley | [sketchfab](https://sketchfab.com/3d-models/none-8af55ec80e4c49b4b8218eb3d6e32fab) |
-| Apec Tactical SMG - Game Ready Gun (Remastered) | ROHIT3DMODELS | [sketchfab](https://sketchfab.com/3d-models/none-2e9bf758703847c88d854fa204384203) |
-| HK MP5 (9mm submachine gun) | quick_loop | [sketchfab](https://sketchfab.com/3d-models/none-c503d96157614fb78b5953d49e643b78) |
-| SMG-M32 | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-3a5f98f75e804e5888379cbe640cc883) |
-| Submachine Gun | J.J.West | [sketchfab](https://sketchfab.com/3d-models/none-85d319704eba40678af7e64df81ec58d) |
-| VECTOR-P22 | Frostoise | [sketchfab](https://sketchfab.com/3d-models/none-6b2015ec3bbd4e959487135493769190) |
-| DKS-501 Sniper Rifle | TrevorLaws | [sketchfab](https://sketchfab.com/3d-models/none-56da18745f744175841e54e81b5d5d7b) |
-| Kar98k Free Model | Danya | [sketchfab](https://sketchfab.com/3d-models/none-e88c90c8e203401fa28e8f4ef03e657f) |
-| Modern Sniper Rifle / Free Lowpoly | Vlasov Daniil | [sketchfab](https://sketchfab.com/3d-models/none-45c99509f1ee4c2a8c9c3336d3e2ff5a) |
-| Sniper | DJMaesen | [sketchfab](https://sketchfab.com/3d-models/none-cdefd833b4b5407ba32c53c9e7f50cae) |
-| Sniper rifle GameReady Free | pashtetuser | [sketchfab](https://sketchfab.com/3d-models/none-e520b234140049e7890db0b6c29d3925) |
-| VSK-94/ВСК-94 Sniper Rifle Gameready Lowpoly | valterjherson1 | [sketchfab](https://sketchfab.com/3d-models/none-2a38f8e36cae4952b6f04ec27b6c60da) |
-| R7-X Sniper | Bl4ckGh0st | [sketchfab](https://sketchfab.com/3d-models/none-d6861fe22edf4b4884e87daa66d7deea) |
-| RENEGADE Rail Gun | Bl4ckGh0st | [sketchfab](https://sketchfab.com/3d-models/none-1bfcf07c52914e55a5853e6835d917f5) |
-| Sci-FI Sniper Rifle | Matija Švaco | [sketchfab](https://sketchfab.com/3d-models/none-2d1bef3aa9ae47c5aee26cc3f032ab31) |
-| Sniper Railgun Mk-3 | ReiSakisaka | [sketchfab](https://sketchfab.com/3d-models/none-dafa37e0394b44399929aced2dbcd264) |
-| Sniper Rifle Futuristic | trolosqlfod | [sketchfab](https://sketchfab.com/3d-models/none-b00986dc8fe649319d3e934a288c3bb9) |
+Se modificaron: texturas comprimidas a WebP, orientación y tamaño normalizados, y en algunos modelos se quitaron piezas sueltas (cargadores, vainas, variantes duplicadas).
 
 ## Mapas de Sketchfab (CC Attribution 4.0)
 

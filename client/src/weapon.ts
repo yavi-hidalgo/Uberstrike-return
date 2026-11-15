@@ -220,6 +220,36 @@ export class ShotEffects {
     }
   }
 
+  /** Explosión de un proyectil: destello, bola de fuego o de plasma, chispas y humo. */
+  explosion(point: THREE.Vector3, radius: number, fx: { energy: boolean; color: number }) {
+    const hot = fx.energy ? fx.color : 0xffb060;
+    const flash = new THREE.SpriteMaterial({ map: this.dustTex, color: 0xffffff, transparent: true, depthWrite: false, opacity: 1, blending: THREE.AdditiveBlending });
+    this.spawn(flash, point, new THREE.Vector3(), 0.12, radius * 0.9, 6, 0, 1);
+    for (let i = 0; i < 7; i++) {
+      const fire = new THREE.SpriteMaterial({ map: this.dustTex, color: hot, transparent: true, depthWrite: false, opacity: 0.95, blending: THREE.AdditiveBlending });
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(radius * 1.4);
+      this.spawn(fire, point, v, 0.3 + Math.random() * 0.25, radius * 0.45, 2.2, -1, 0.95);
+    }
+    const mat = this.sparksOf(hot);
+    for (let i = 0; i < 26; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9, Math.random() - 0.5).normalize().multiplyScalar(radius * (2 + Math.random() * 4));
+      this.spawn(mat, point, v, 0.35 + Math.random() * 0.5, 0.09, 0, 9);
+    }
+    if (!fx.energy) for (let i = 0; i < 8; i++) {
+      const smoke = new THREE.SpriteMaterial({ map: this.dustTex, color: 0x3a3836, transparent: true, depthWrite: false, opacity: 0.6 });
+      const v = new THREE.Vector3(Math.random() - 0.5, 0.5 + Math.random(), Math.random() - 0.5).multiplyScalar(radius * 0.5);
+      this.spawn(smoke, point, v, 1.4 + Math.random() * 1.2, radius * 0.35, 0.9, -0.3, 0.6);
+    }
+  }
+
+  /** Estela de un proyectil en vuelo (humo del cohete o brillo del plasma). */
+  trail(point: THREE.Vector3, fx: { energy: boolean; color: number }) {
+    const m = fx.energy
+      ? new THREE.SpriteMaterial({ map: this.dustTex, color: fx.color, transparent: true, depthWrite: false, opacity: 0.6, blending: THREE.AdditiveBlending })
+      : new THREE.SpriteMaterial({ map: this.dustTex, color: 0xb8b4ae, transparent: true, depthWrite: false, opacity: 0.45 });
+    this.spawn(m, point, new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.2, (Math.random() - 0.5) * 0.3), fx.energy ? 0.25 : 0.9, fx.energy ? 0.22 : 0.18, fx.energy ? -1 : 1.6, 0, fx.energy ? 0.6 : 0.45);
+  }
+
   /** Salpicadura al acertarle a un jugador. */
   bodyHit(point: THREE.Vector3, headshot: boolean) {
     const mat = new THREE.SpriteMaterial({ map: this.dustTex, color: headshot ? 0xff5a4a : 0xb02a22, transparent: true, depthWrite: false, opacity: 0.8 });
@@ -275,7 +305,10 @@ export class ShotEffects {
 /** Arma en primera persona: balanceo al caminar, inercia, retroceso, recarga, cambio de arma y fogonazo. */
 export class ViewWeapon {
   readonly root = new THREE.Group(); // colgado de la cámara
-  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number; yaw?: number; roll?: number; pitch?: number; arms?: ArmsViewModel } | null)[] = [null, null];
+  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number; yaw?: number; roll?: number; pitch?: number; melee?: boolean; arms?: ArmsViewModel } | null)[] = [null, null, null];
+  /** Golpe del arma blanca: 1 al empezar, baja a 0. */
+  private swingT = 0;
+  private swingDur = 0.3;
   private wasReloading = false;
   private current = 0;
   private flash: THREE.Group;
@@ -311,7 +344,7 @@ export class ViewWeapon {
    * Coloca un modelo de arma (normalizado: cañón hacia -Z, centrado, tamaño real) en una ranura.
    * La posición se calcula con su tamaño para que cualquier arma quede bien encuadrada.
    */
-  setSlotModel(slot: number, model: THREE.Object3D, anchors: { size: THREE.Vector3; box: THREE.Box3; muzzle: THREE.Vector3; ejector: THREE.Vector3 }) {
+  setSlotModel(slot: number, model: THREE.Object3D, anchors: { size: THREE.Vector3; box: THREE.Box3; muzzle: THREE.Vector3; ejector: THREE.Vector3 }, opts: { melee?: boolean } = {}) {
     const old = this.slots[slot];
     if (old) this.root.remove(old.group);
     model.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
@@ -323,6 +356,17 @@ export class ViewWeapon {
     ejector.position.copy(anchors.ejector);
     group.add(muzzle, ejector);
     const len = anchors.size.z;
+    if (opts.melee) {
+      // Arma blanca: empuñada abajo a la derecha, con la hoja hacia arriba y adelante
+      const p = 0.78, y = 0.3;
+      const grip = new THREE.Vector3(0.25, -0.2, -0.45);
+      const dir = new THREE.Vector3(-Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p));
+      const base = grip.addScaledVector(dir, len / 2 - 0.1);
+      group.visible = slot === this.current;
+      this.root.add(group);
+      this.slots[slot] = { group, muzzle, ejector, base, kick: 0, yaw: y, roll: -0.35, pitch: p, melee: true };
+      return;
+    }
     const pistol = len < 0.4;
     // Encuadre: la parte trasera del arma cerca de la cámara, el borde superior un poco por debajo
     // del centro de la pantalla y girada unos grados hacia dentro para que se vea su costado.
@@ -374,10 +418,17 @@ export class ViewWeapon {
     return a ? a.ejector.getWorldPosition(new THREE.Vector3()) : this.root.getWorldPosition(new THREE.Vector3());
   }
 
+  /** Golpe con el arma blanca (dura `seconds`). */
+  swing(seconds: number) {
+    this.swingT = 1;
+    this.swingDur = Math.max(0.18, Math.min(0.45, seconds * 0.8));
+  }
+
   /** Fogonazo y golpe del arma, según su perfil de efectos. */
   fire(fx: { flashSize: number; flashLight: number; flashTime: number; color: number; kick: number; energy: boolean }) {
     this.active()?.arms?.fire();
     this.recoil = Math.min(2.2, fx.kick);
+    if (fx.flashSize <= 0) return;
     this.flashTime = fx.flashTime;
     this.flash.visible = true;
     this.flash.rotation.z = Math.random() * Math.PI;
@@ -422,6 +473,22 @@ export class ViewWeapon {
       b.z + Math.min(1.4, k) * 0.045 + ads * 0.05,
     );
     const aimK = (1 - this.aimT) * (1 - ads * 0.9);
+    if (a.melee) {
+      // Tajo: la hoja sube un poco y baja cruzando la pantalla
+      this.swingT = Math.max(0, this.swingT - dt / this.swingDur);
+      const ph = 1 - this.swingT;
+      const wind = this.swingT > 0 ? Math.sin(Math.min(1, ph * 4) * Math.PI) * 0.25 : 0;
+      const cut = this.swingT > 0 ? Math.sin(Math.max(0, (ph - 0.15) / 0.85) * Math.PI) : 0;
+      this.root.position.x -= cut * 0.2; this.root.position.y -= cut * 0.1; this.root.position.z -= cut * 0.18;
+      this.root.rotation.set(
+        (a.pitch ?? 0) + wind - cut * 1.7 - this.switchT * 0.8,
+        (a.yaw ?? 0) + this.sway.x * 1.5 + cut * 0.9,
+        (a.roll ?? 0) + bobX * 2 + cut * 0.8,
+      );
+      this.flash.visible = false;
+      this.flashLight.intensity = 0;
+      return;
+    }
     this.root.rotation.set(
       k * a.kick * (1 - ads * 0.4) + this.reloadT * -0.6 - this.switchT * 0.8 + (a.pitch ?? 0) * aimK - run * 0.18,
       this.sway.x * 1.5 + (a.yaw ?? 0) * aimK + run * 0.5,

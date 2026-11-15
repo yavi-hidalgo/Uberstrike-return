@@ -5,18 +5,19 @@ import "@fontsource/saira-condensed/800.css";
 import { Client, type Room } from "colyseus.js";
 import { DT, EYE_HEIGHT, KEY, MAX_HP, MAX_PITCH, SPRINT_SPEED } from "../../shared/src/constants";
 import {
-  BLOOM_RECOVERY, CATEGORY_NAMES, DEFAULT_PRIMARY, DEFAULT_SECONDARY, WEAPON_MODELS, effectiveSpread, validLoadout, weaponModel, weaponStats,
-  type Category, type WeaponStats,
+  BLOOM_RECOVERY, CATEGORY_NAMES, DEFAULT_MELEE, DEFAULT_PRIMARY, DEFAULT_SECONDARY, WEAPON_MODELS, effectiveSpread, validLoadout, weaponModel, weaponStats,
+  type Category, type Loadout, type WeaponStats,
 } from "../../shared/src/weapons";
 import { aimDirection, rayMapHit, stepMove, type InputCmd, type MoveState } from "../../shared/src/physics";
 import type {
-  DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, RosterEntry, RosterMsg,
-  ShotMsg, SnapshotMsg, WelcomeMsg,
+  BoomMsg, DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, ProjMsg, RosterEntry, RosterMsg,
+  ShotMsg, SnapshotMsg, SwingMsg, WelcomeMsg,
 } from "../../shared/src/protocol";
 import { World, loadQuality, type Quality } from "./world";
 import { DEFAULT_MAP, MAPS, PLAYABLE_MAPS, mapById } from "../../shared/src/maps";
 import { sfx } from "./audio";
 import { weaponFx } from "./fx";
+import { validLook, type Look } from "../../shared/src/gear";
 
 // Dirección del servidor de juego. En producción se define con VITE_SERVER_URL.
 const SERVER_URL: string =
@@ -52,7 +53,7 @@ const pred: MoveState = { x: 0, y: 0, z: 0, vy: 0, onGround: true, vx: 0, vz: 0 
 const prevTickPos = new THREE.Vector3();
 const currTickPos = new THREE.Vector3();
 const correction = new THREE.Vector3(); // suaviza los ajustes del servidor
-let pending: InputCmd[] = [];
+let pending: (InputCmd & { k: number })[] = [];
 let accumulator = 0;
 let horizSpeed = 0;
 let sprinting = false;
@@ -60,9 +61,13 @@ let stepTimer = 0;
 let wasOnGround = true;
 
 // Equipamiento elegido en el menú (el servidor lo vuelve a validar)
-let loadout: [string, string] = [DEFAULT_PRIMARY, DEFAULT_SECONDARY];
-try { loadout = validLoadout(localStorage.getItem("arena.primary"), localStorage.getItem("arena.secondary")); } catch { /* sin storage */ }
-let slotStats: [WeaponStats, WeaponStats] = [weaponStats(loadout[0]), weaponStats(loadout[1])];
+let loadout: Loadout = [DEFAULT_PRIMARY, DEFAULT_SECONDARY, DEFAULT_MELEE];
+let look: Look = validLook(undefined);
+try {
+  loadout = validLoadout(localStorage.getItem("arena.primary"), localStorage.getItem("arena.secondary"), localStorage.getItem("arena.melee"));
+  look = validLook({ skin: localStorage.getItem("arena.skin"), helmet: localStorage.getItem("arena.helmet"), vest: localStorage.getItem("arena.vest"), pack: localStorage.getItem("arena.pack") });
+} catch { /* sin storage */ }
+let slotStats: WeaponStats[] = loadout.map((id) => weaponStats(id));
 let aiming = false;
 // Retroceso real: cada disparo sube (y desvía un poco) la mira; se recupera sola al dejar de disparar
 let recoilPitch = 0, recoilYaw = 0;
@@ -74,7 +79,7 @@ const aimYaw = () => yaw + recoilYaw;
 const aimPitch = () => Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch + recoilPitch));
 
 let me = {
-  alive: true, hp: MAX_HP, ammo: slotStats[0].magazine, weapon: 0, switching: false, reloading: false, respawnIn: 0, ping: 0,
+  alive: true, hp: MAX_HP, maxHp: MAX_HP, ammo: slotStats[0].magazine, weapon: 0, switching: false, reloading: false, respawnIn: 0, ping: 0,
 };
 let prevFireHeld = false;
 let localFireCooldown = 0;
@@ -114,7 +119,7 @@ qualitySel.addEventListener("change", () => {
 // Selectores de armas agrupados por tipo
 const primarySel = $<HTMLSelectElement>("primary");
 const secondarySel = $<HTMLSelectElement>("secondary");
-const order: Category[] = ["rifle", "smg", "shotgun", "sniper"];
+const order: Category[] = ["rifle", "smg", "shotgun", "sniper", "cannon"];
 for (const cat of order) {
   for (const fut of [false, true]) {
     const list = WEAPON_MODELS.filter((w) => w.category === cat && w.futuristic === fut);
@@ -128,13 +133,21 @@ for (const cat of order) {
 for (const w of WEAPON_MODELS.filter((x) => x.category === "pistol")) {
   secondarySel.append(new Option(`${w.name}${w.futuristic ? " (futurista)" : ""}`, w.id));
 }
+const meleeSel = $<HTMLSelectElement>("melee");
+for (const w of WEAPON_MODELS.filter((x) => x.category === "melee")) meleeSel.append(new Option(w.name, w.id));
 primarySel.value = loadout[0];
 secondarySel.value = loadout[1];
+meleeSel.value = loadout[2];
 function describe(id: string): string {
   const m = weaponModel(id);
   if (!m) return "";
   const st = weaponStats(id);
   const rate = Math.round(30 / st.fireIntervalTicks * 10) / 10;
+  const by = m.author ? ` · modelo de ${m.author}` : "";
+  if (st.meleeRange > 0) return `Arma blanca ${m.melee === "light" ? "ligera" : m.melee === "heavy" ? "pesada" : "media"} · daño ${st.damage} · ${rate} golpes/s · alcance ${st.meleeRange} m · +${Math.round((st.speedK - 1) * 100)} % de velocidad${by}`;
+  if (st.projectile) return `Cañón de ${m.cannon === "plasma" ? "plasma" : "cohetes"} · impacto ${st.damage} · explosión ${st.projectile.splash} en ${st.projectile.radius} m · ${rate} disp/s · cargador ${st.magazine}${by}`;
+  if (m.cannon === "minigun") return `Minigun · daño ${st.damage} · ${rate} disp/s · cargador ${st.magazine} · te vuelve un ${Math.round((1 - st.speedK) * 100)} % más lento${by}`;
+  if (m.cannon === "rail") return `Cañón de riel · daño ${st.damage} · ${rate} disp/s · cargador ${st.magazine} · rayo instantáneo${by}`;
   const dmg = st.pellets > 1 ? `${st.pellets}×${st.damage}` : `${st.damage}`;
   const reach = st.energy ? "energía: no pierde daño con la distancia, poco retroceso"
     : st.falloffMin >= 1 ? "daño completo a cualquier distancia" : `daño completo hasta ${st.falloffStart} m, ${Math.round(st.falloffMin * 100)} % desde ${st.falloffEnd} m`;
@@ -143,9 +156,11 @@ function describe(id: string): string {
 function updateLoadoutInfo() {
   $("primary-info").textContent = describe(primarySel.value);
   $("secondary-info").textContent = describe(secondarySel.value);
+  $("melee-info").textContent = describe(meleeSel.value);
 }
 primarySel.addEventListener("change", updateLoadoutInfo);
 secondarySel.addEventListener("change", updateLoadoutInfo);
+meleeSel.addEventListener("change", updateLoadoutInfo);
 updateLoadoutInfo();
 
 joinBtn.disabled = true;
@@ -158,12 +173,13 @@ worldReady.then(() => {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = nameInput.value.trim() || "Jugador";
-  loadout = validLoadout(primarySel.value, secondarySel.value);
-  slotStats = [weaponStats(loadout[0]), weaponStats(loadout[1])];
+  loadout = validLoadout(primarySel.value, secondarySel.value, meleeSel.value);
+  slotStats = loadout.map((id) => weaponStats(id));
   try {
     localStorage.setItem("arena.name", name);
     localStorage.setItem("arena.primary", loadout[0]);
     localStorage.setItem("arena.secondary", loadout[1]);
+    localStorage.setItem("arena.melee", loadout[2]);
   } catch { /* sin storage */ }
   joinBtn.disabled = true;
   menuError.textContent = "";
@@ -187,7 +203,7 @@ form.addEventListener("submit", async (e) => {
 
 async function connect(name: string) {
   const client = new Client(SERVER_URL);
-  room = await client.joinOrCreate("arena", { name, primary: loadout[0], secondary: loadout[1], map: mapDef.id });
+  room = await client.joinOrCreate("arena", { name, primary: loadout[0], secondary: loadout[1], melee: loadout[2], ...look, map: mapDef.id });
 
   room.onMessage("welcome", (m: WelcomeMsg) => {
     myId = m.id;
@@ -202,6 +218,13 @@ async function connect(name: string) {
   room.onMessage("snap", onSnapshot);
   room.onMessage("roster", onRoster);
   room.onMessage("shot", onRemoteShot);
+  room.onMessage("proj", onProjectile);
+  room.onMessage("boom", onBoom);
+  room.onMessage("swing", (m: SwingMsg) => {
+    const o = remoteBuffer.length ? remoteBuffer[remoteBuffer.length - 1].others.get(m.id) : undefined;
+    const d = o ? Math.hypot(o[1] - pred.x, o[3] - pred.z) : 20;
+    if (d < 25) { if (m.hit) sfx.thud(); else sfx.swing(); }
+  });
   room.onMessage("kill", onKill);
   room.onMessage("hit", onHit);
   room.onMessage("damaged", onDamaged);
@@ -227,7 +250,7 @@ function onSnapshot(s: SnapshotMsg) {
   const y = s.you;
   const wasAlive = me.alive;
   me = {
-    alive: y.alive, hp: y.hp, ammo: y.ammo, weapon: y.weapon, switching: y.switching,
+    alive: y.alive, hp: y.hp, maxHp: y.maxHp ?? MAX_HP, ammo: y.ammo, weapon: y.weapon, switching: y.switching,
     reloading: y.reloading, respawnIn: y.respawnIn, ping: y.ping,
   };
   world.weapon.setWeapon(y.weapon);
@@ -239,7 +262,7 @@ function onSnapshot(s: SnapshotMsg) {
   Object.assign(pred, { x: y.x, y: y.y, z: y.z, vy: y.vy, onGround: y.g, vx: y.vx ?? 0, vz: y.vz ?? 0 });
   pending = pending.filter((c) => c.seq > y.seq);
   if (y.alive) {
-    for (const c of pending) stepMove(pred, c.keys, c.yaw, DT, boxes);
+    for (const c of pending) stepMove(pred, c.keys, c.yaw, DT, boxes, c.k);
   } else {
     pending = [];
   }
@@ -297,6 +320,26 @@ function onRemoteShot(s: ShotMsg) {
 }
 
 const lastShotSound = new Map<number, number>();
+
+/** Proyectil de un cañón (los propios ya se dibujan al disparar). */
+function onProjectile(m: ProjMsg) {
+  if (m.owner === myId) return;
+  const fx = weaponFx(roster.get(m.owner)?.loadout?.[m.slot] ?? DEFAULT_PRIMARY);
+  const from = new THREE.Vector3(...m.from), dir = new THREE.Vector3(...m.dir);
+  const hit = rayMapHit(from.x, from.y, from.z, dir.x, dir.y, dir.z, 200, boxes);
+  world.spawnProjectile(m.id, from, dir, m.speed, m.gravity, hit.t, fx, false);
+  const d = Math.hypot(m.from[0] - pred.x, m.from[2] - pred.z);
+  sfx.weapon(fx, Math.max(0.1, Math.min(0.85, 1 - d / 70)));
+}
+
+function onBoom(m: BoomMsg) {
+  const fx = weaponFx(roster.get(m.owner)?.loadout?.[m.slot] ?? DEFAULT_PRIMARY);
+  const pos = new THREE.Vector3(...m.pos);
+  world.explode(m.id, pos, m.radius, fx, m.owner === myId);
+  const d = pos.distanceTo(new THREE.Vector3(pred.x, pred.y + EYE_HEIGHT, pred.z));
+  sfx.explosion(Math.min(1, 1.2 - d / 45), m.radius > 3.5);
+  if (d < m.radius * 3) shake = Math.min(0.07, shake + 0.05 * (1 - d / (m.radius * 3)));
+}
 
 function onKill(k: KillMsg) {
   const killer = roster.get(k.killer)?.name ?? "?";
@@ -395,6 +438,7 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.code === "Digit1" || e.code === "Numpad1") pendingWeapon = 0;
   if (e.code === "Digit2" || e.code === "Numpad2") pendingWeapon = 1;
+  if (e.code === "Digit3" || e.code === "Numpad3") pendingWeapon = 2;
   keysDown.add(e.code);
 });
 window.addEventListener("keyup", (e) => {
@@ -417,9 +461,10 @@ function currentKeys(): number {
   if (k("KeyR")) keys |= KEY.RELOAD;
   if (mouseDown) keys |= KEY.FIRE;
   if (k("ShiftLeft") || k("ShiftRight")) keys |= KEY.SPRINT;
-  if (aiming && !me.reloading && !me.switching) keys |= KEY.AIM;
+  if (aiming && !me.reloading && !me.switching && slotStats[me.weapon].zoomFov > 0) keys |= KEY.AIM;
   if (k("Digit1") || k("Numpad1") || pendingWeapon === 0) keys |= KEY.WEAPON1;
   else if (k("Digit2") || k("Numpad2") || pendingWeapon === 1) keys |= KEY.WEAPON2;
+  else if (k("Digit3") || k("Numpad3") || pendingWeapon === 2) keys |= KEY.WEAPON3;
   pendingWeapon = -1;
   return keys;
 }
@@ -428,15 +473,16 @@ function currentKeys(): number {
 function fixedTick() {
   if (!room || snapshotsReceived === 0) return;
   const keys = currentKeys();
-  const cmd: InputCmd = { seq: ++seq, keys, yaw: aimYaw(), pitch: aimPitch() };
-  room.send("input", cmd);
+  // k = multiplicador de velocidad del arma en la mano en este tick (para repetir la predicción igual)
+  const cmd = { seq: ++seq, keys, yaw: aimYaw(), pitch: aimPitch(), k: slotStats[me.weapon]?.speedK ?? 1 };
+  room.send("input", { seq: cmd.seq, keys, yaw: cmd.yaw, pitch: cmd.pitch } satisfies InputCmd);
 
   prevTickPos.copy(currTickPos);
   if (me.alive) {
     pending.push(cmd);
     const bx = pred.x, bz = pred.z;
     lastVy = pred.vy;
-    stepMove(pred, keys, cmd.yaw, DT, boxes);
+    stepMove(pred, keys, cmd.yaw, DT, boxes, cmd.k);
     sprinting = (keys & KEY.SPRINT) !== 0 && (keys & KEY.FORWARD) !== 0 && !(keys & (KEY.AIM | KEY.FIRE)) && pred.onGround;
     bloom = Math.max(0, bloom - BLOOM_RECOVERY);
     horizSpeed = Math.hypot(pred.x - bx, pred.z - bz) / DT;
@@ -466,7 +512,7 @@ function footsteps(keys: number) {
 /** Efecto visual inmediato del disparo propio. El daño real lo decide el servidor. */
 function predictLocalFire(keys: number) {
   // Cambio de arma inmediato en pantalla (el servidor lo confirma en el siguiente snapshot)
-  const want = (keys & KEY.WEAPON1) ? 0 : (keys & KEY.WEAPON2) ? 1 : me.weapon;
+  const want = (keys & KEY.WEAPON1) ? 0 : (keys & KEY.WEAPON2) ? 1 : (keys & KEY.WEAPON3) ? 2 : me.weapon;
   if (want !== me.weapon) {
     me.weapon = want;
     me.switching = true;
@@ -479,11 +525,33 @@ function predictLocalFire(keys: number) {
   const held = (keys & KEY.FIRE) !== 0;
   const trigger = w.semiAuto ? held && !prevFireHeld : held;
   prevFireHeld = held;
+  // Arma blanca: solo el golpe (el servidor decide si acierta)
+  if (w.meleeRange > 0) {
+    if (!trigger || localFireCooldown > 0 || me.switching) return;
+    localFireCooldown = w.fireIntervalTicks;
+    world.swing(w.fireIntervalTicks * DT);
+    sfx.swing();
+    shake = Math.min(0.05, shake + 0.006);
+    return;
+  }
   if ((keys & KEY.RELOAD) && me.ammo < w.magazine && !me.reloading) sfx.reload();
   if (!trigger || localFireCooldown > 0 || me.reloading || me.switching || me.ammo <= 0) return;
   localFireCooldown = w.fireIntervalTicks;
   const ox = pred.x, oy = pred.y + EYE_HEIGHT, oz = pred.z;
   const fx = weaponFx(loadout[me.weapon]);
+  // Cañón de proyectil: se dibuja el proyectil al instante; la explosión la confirma el servidor
+  if (w.projectile) {
+    const [dx, dy, dz] = aimDirection(aimYaw(), aimPitch());
+    const from = new THREE.Vector3(ox + dx * 0.5, oy - 0.12 + dy * 0.5, oz + dz * 0.5);
+    const hit = rayMapHit(from.x, from.y, from.z, dx, dy, dz, w.range, boxes);
+    world.localShot([], pred.y, fx);
+    world.spawnProjectile(-seq, from, new THREE.Vector3(dx, dy, dz), w.projectile.speed, w.projectile.gravity, hit.t, fx, true);
+    sfx.weapon(fx);
+    recoilPitch += fx.recoilUp * (0.85 + Math.random() * 0.3);
+    recoilYaw += (Math.random() * 2 - 1) * fx.recoilSide;
+    shake = Math.min(0.05, shake + fx.shake);
+    return;
+  }
   // Los perdigones y la dispersión de aquí son solo visuales: el servidor tira los suyos
   const spread = currentSpread();
   const ay = aimYaw(), ap = aimPitch();
@@ -558,13 +626,14 @@ function updateRemotes(now: number) {
 function updateHud() {
   $("hp-value").textContent = String(me.hp);
   const fill = $("hp-fill");
-  fill.style.width = `${(me.hp / MAX_HP) * 100}%`;
+  fill.style.width = `${Math.min(100, (me.hp / me.maxHp) * 100)}%`;
   fill.classList.toggle("low", me.hp <= 30);
   const w = slotStats[me.weapon];
-  $("ammo").textContent = String(me.ammo);
-  $("ammo-max").textContent = `/ ${w.magazine}`;
+  const noAmmo = me.ammo < 0 || w.meleeRange > 0;
+  $("ammo").textContent = noAmmo ? "—" : String(me.ammo);
+  $("ammo-max").textContent = noAmmo ? "" : `/ ${w.magazine}`;
   $("weapon-name").textContent = (weaponModel(loadout[me.weapon])?.name ?? "").toUpperCase();
-  const zoomed = aiming && me.alive && !me.reloading && !me.switching;
+  const zoomed = aiming && me.alive && !me.reloading && !me.switching && w.zoomFov > 0;
   // Al correr el campo de visión se abre un poco: da sensación de velocidad
   world.setZoom(zoomed ? w.zoomFov : 0, sprinting ? 5 : 0);
   $("scope").classList.toggle("hidden", !(zoomed && w.scope));
@@ -576,6 +645,7 @@ function updateHud() {
   ch.classList.toggle("ads", zoomed && !w.scope);
   $("slot-1").classList.toggle("active", me.weapon === 0);
   $("slot-2").classList.toggle("active", me.weapon === 1);
+  $("slot-3").classList.toggle("active", me.weapon === 2);
   $("reload").classList.toggle("hidden", !me.reloading);
   $("ping").textContent = `${me.ping} ms`;
 
@@ -670,7 +740,7 @@ function frame(now: number) {
     speed: horizSpeed, onGround: pred.onGround, lookDX, lookDY,
     reloading: me.reloading, alive: !!room && me.alive,
     aiming: aiming && slotStats[me.weapon].scope && !me.reloading && !me.switching,
-    ads: aiming && !slotStats[me.weapon].scope && !me.reloading && !me.switching,
+    ads: aiming && !slotStats[me.weapon].scope && slotStats[me.weapon].zoomFov > 0 && !me.reloading && !me.switching,
     sprinting,
     reloadSeconds: slotStats[me.weapon].reloadTicks * DT,
   });

@@ -1,7 +1,7 @@
 // Perfil de efectos de cada arma: cómo se ve y suena su disparo y cuánto patea.
 // Sale del tipo de arma, de si es de energía y, para el color y el tono, de su propio id,
 // así que dos armas del mismo tipo tampoco se sienten iguales.
-import { weaponModel, type Category } from "../../shared/src/weapons";
+import { weaponModel, type CannonKind, type Category } from "../../shared/src/weapons";
 
 export type TracerStyle = "bullet" | "pellet" | "vapor" | "beam" | "bolt" | "rail";
 
@@ -30,6 +30,8 @@ export interface WeaponFx {
   shake: number;
   /** Tono del sonido (1 = normal). */
   pitch: number;
+  /** Tipo de cañón (solo en cañones). */
+  cannon?: CannonKind;
 }
 
 const ENERGY_COLORS = [0x4fd8ff, 0x7dff6a, 0xff5ad6, 0xffa23a, 0x9a7bff, 0xff4a3a, 0x52ffd0];
@@ -45,6 +47,8 @@ const BALLISTIC: Record<Category, Omit<WeaponFx, "category" | "energy" | "color"
   smg: { flashSize: 0.7, flashLight: 16, flashTime: 0.035, tracer: "bullet", width: 0.012, impact: 0.7, smoke: 0, casing: true, recoilUp: 0.0055, recoilSide: 0.004, kick: 0.6, shake: 0.002 },
   shotgun: { flashSize: 1.9, flashLight: 45, flashTime: 0.07, tracer: "pellet", width: 0.01, impact: 0.6, smoke: 5, casing: true, recoilUp: 0.05, recoilSide: 0.012, kick: 2.2, shake: 0.02 },
   sniper: { flashSize: 1.7, flashLight: 40, flashTime: 0.06, tracer: "vapor", width: 0.03, impact: 2.2, smoke: 4, casing: true, recoilUp: 0.07, recoilSide: 0.01, kick: 2.6, shake: 0.028 },
+  melee: { flashSize: 0, flashLight: 0, flashTime: 0, tracer: "bullet", width: 0, impact: 0.8, smoke: 0, casing: false, recoilUp: 0, recoilSide: 0, kick: 0, shake: 0.006 },
+  cannon: { flashSize: 2.2, flashLight: 55, flashTime: 0.09, tracer: "bullet", width: 0.03, impact: 2.5, smoke: 7, casing: false, recoilUp: 0.06, recoilSide: 0.012, kick: 2.4, shake: 0.03 },
   pistol: { flashSize: 0.75, flashLight: 18, flashTime: 0.04, tracer: "bullet", width: 0.012, impact: 0.8, smoke: 0, casing: true, recoilUp: 0.02, recoilSide: 0.006, kick: 1.5, shake: 0.006 },
 };
 
@@ -55,6 +59,16 @@ const ENERGY: Record<Category, Partial<WeaponFx>> = {
   shotgun: { tracer: "beam", width: 0.03, flashSize: 1.7, flashTime: 0.1, impact: 0.8, smoke: 0 },
   sniper: { tracer: "rail", width: 0.09, flashSize: 1.6, flashTime: 0.12, impact: 2.6, smoke: 0 },
   pistol: { tracer: "bolt", width: 0.04, flashSize: 0.7, flashTime: 0.06, impact: 1 },
+  melee: {},
+  cannon: {},
+};
+
+// Cada tipo de cañón tiene su propio carácter
+const CANNON: Record<CannonKind, Partial<WeaponFx>> = {
+  rocket: {},
+  plasma: { flashSize: 1.4, flashLight: 40, smoke: 0, recoilUp: 0.03, kick: 1.6, shake: 0.014, impact: 1.6 },
+  rail: { tracer: "rail", width: 0.11, flashSize: 1.8, flashTime: 0.14, smoke: 0, recoilUp: 0.07, kick: 2.6, shake: 0.03, impact: 2.8 },
+  minigun: { flashSize: 0.9, flashLight: 22, flashTime: 0.03, tracer: "bullet", width: 0.014, impact: 0.7, smoke: 0, casing: true, recoilUp: 0.003, recoilSide: 0.004, kick: 0.45, shake: 0.003 },
 };
 
 const cache = new Map<string, WeaponFx>();
@@ -73,7 +87,14 @@ export function weaponFx(id: string): WeaponFx {
     pitch: 0.88 + hash(id, 11) * 0.26,
     ...(energy ? ENERGY[category] : {}),
   };
-  if (energy) {
+  if (m?.cannon) {
+    Object.assign(fx, CANNON[m.cannon]);
+    fx.cannon = m.cannon;
+    // el riel siempre deja un rayo de color; cohetes y miniguns reales usan tonos cálidos
+    if (m.cannon === "rail" && !energy) fx.color = 0x9fd0ff;
+    if (m.cannon === "plasma" && !energy) fx.color = 0x7dff6a;
+    if (m.cannon === "minigun" && energy) fx.tracer = "bolt";
+  } else if (energy) {
     fx.casing = false;
     fx.recoilUp = b.recoilUp * 0.55;
     fx.recoilSide = b.recoilSide * 0.5;

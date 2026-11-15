@@ -1,4 +1,5 @@
 // Mensajes entre cliente y servidor.
+import type { Look } from "./gear";
 
 /** Cliente -> servidor, ~30 por segundo. */
 export interface InputMsg {
@@ -15,9 +16,10 @@ export interface SelfSnapshot {
   yaw: number; // solo lo usa el cliente al reaparecer
   seq: number; // último input procesado
   hp: number;
+  maxHp: number; // 100 + lo que suma el equipo
   alive: boolean;
-  ammo: number; // del arma en mano
-  weapon: number; // 0 = principal, 1 = pistola
+  ammo: number; // del arma en mano (-1 = arma blanca, sin munición)
+  weapon: number; // 0 = principal, 1 = pistola, 2 = arma blanca
   switching: boolean;
   reloading: boolean;
   respawnIn: number; // ms, 0 si está vivo
@@ -39,7 +41,9 @@ export interface RosterEntry {
   kills: number;
   deaths: number;
   alive: boolean;
-  loadout: [string, string]; // ids de arma principal y pistola
+  loadout: [string, string, string]; // ids de arma principal, pistola y arma blanca
+  look: Look; // skin y equipo
+  maxHp: number;
 }
 
 export interface RosterMsg {
@@ -82,6 +86,32 @@ export interface HitMsg {
 export interface DamagedMsg {
   /** dirección horizontal desde la que vino el disparo (radianes) */
   fromAngle: number;
+}
+
+/** Proyectil de un cañón: sale de `from` en dirección `dir`. */
+export interface ProjMsg {
+  id: number;
+  owner: number;
+  slot: number;
+  from: [number, number, number];
+  dir: [number, number, number];
+  speed: number;
+  gravity: number;
+}
+
+/** Explosión de un proyectil. */
+export interface BoomMsg {
+  id: number;
+  owner: number;
+  slot: number;
+  pos: [number, number, number];
+  radius: number;
+}
+
+/** Golpe con arma blanca de otro jugador (para el sonido y la animación). */
+export interface SwingMsg {
+  id: number;
+  hit: boolean;
 }
 
 /** Estado de los botiquines: ids de los que están disponibles ahora. */

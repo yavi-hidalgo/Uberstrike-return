@@ -6,13 +6,14 @@ import {
   SWITCH_TICKS, VISIBILITY_GRACE_MS,
 } from "../../shared/src/constants";
 import { mapById, type MapDef } from "../../shared/src/maps";
-import { BLOOM_RECOVERY, damageFalloff, effectiveSpread, validLoadout, weaponStats, type WeaponStats } from "../../shared/src/weapons";
+import { BLOOM_RECOVERY, damageFalloff, effectiveSpread, validLoadout, weaponStats, type Loadout, type WeaponStats } from "../../shared/src/weapons";
+import { gearHp, validLook, type Look } from "../../shared/src/gear";
 import {
   aimDirection, hitboxes, lineOfSight, rayBox, rayMap, stepMove,
   type InputCmd, type MoveState,
 } from "../../shared/src/physics";
 import type {
-  DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, RosterMsg, ShotMsg,
+  BoomMsg, DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, ProjMsg, RosterMsg, ShotMsg, SwingMsg,
   SnapshotMsg, WelcomeMsg,
 } from "../../shared/src/protocol";
 
@@ -32,9 +33,11 @@ class Player {
   hp = MAX_HP;
   alive = false;
   respawnAt = 0;
-  weapon = 0; // 0 = principal, 1 = pistola
-  loadout: [string, string];
-  stats: [WeaponStats, WeaponStats];
+  weapon = 0; // 0 = principal, 1 = pistola, 2 = arma blanca
+  loadout: Loadout;
+  stats: WeaponStats[];
+  /** Vida máxima: 100 más lo que suma el equipo. */
+  maxHp: number;
   ammo: number[];
   reloadTicks = 0;
   fireCooldown = 0;
@@ -64,10 +67,12 @@ class Player {
     readonly id: number,
     readonly client: Client,
     readonly name: string,
-    loadout: [string, string],
+    loadout: Loadout,
+    readonly look: Look,
   ) {
     this.loadout = loadout;
-    this.stats = [weaponStats(loadout[0]), weaponStats(loadout[1])];
+    this.stats = loadout.map((id) => weaponStats(id));
+    this.maxHp = MAX_HP + gearHp(look);
     this.ammo = this.stats.map((w) => w.magazine);
   }
 }
@@ -144,10 +149,10 @@ export class ArenaRoom extends Room {
     }, 1000);
   }
 
-  onJoin(client: Client, options: { name?: unknown; primary?: unknown; secondary?: unknown } = {}) {
+  onJoin(client: Client, options: { name?: unknown; primary?: unknown; secondary?: unknown; melee?: unknown; skin?: unknown; helmet?: unknown; vest?: unknown; pack?: unknown } = {}) {
     const id = this.nextId++;
     const name = sanitizeName(options?.name, `Jugador${id}`);
-    const p = new Player(id, client, name, validLoadout(options?.primary, options?.secondary));
+    const p = new Player(id, client, name, validLoadout(options?.primary, options?.secondary, options?.melee), validLook(options));
     this.players.set(client.sessionId, p);
     this.respawn(p);
     client.send("welcome", { id, tickRate: TICK_RATE, map: this.map.id } satisfies WelcomeMsg);
@@ -239,6 +244,7 @@ export class ArenaRoom extends Room {
       if (p.history.length > HISTORY_TICKS) p.history.shift();
     }
 
+    this.updateProjectiles();
     this.updatePickups(now);
 
     this.sendSnapshots(now);
@@ -250,7 +256,7 @@ export class ArenaRoom extends Room {
     p.pitch = cmd.pitch;
     if (!p.alive) return;
 
-    stepMove(p.move, cmd.keys, cmd.yaw, DT, this.map.boxes);
+    stepMove(p.move, cmd.keys, cmd.yaw, DT, this.map.boxes, p.stats[p.weapon].speedK);
 
     const w = p.stats[p.weapon];
     if (p.fireCooldown > 0) p.fireCooldown--;
@@ -261,7 +267,7 @@ export class ArenaRoom extends Room {
       if (p.reloadTicks === 0) p.ammo[p.weapon] = w.magazine;
     }
     // Cambio de arma: cancela la recarga y tarda un momento en estar lista
-    const want = (cmd.keys & KEY.WEAPON1) ? 0 : (cmd.keys & KEY.WEAPON2) ? 1 : p.weapon;
+    const want = (cmd.keys & KEY.WEAPON1) ? 0 : (cmd.keys & KEY.WEAPON2) ? 1 : (cmd.keys & KEY.WEAPON3) ? 2 : p.weapon;
     if (want !== p.weapon) {
       p.weapon = want;
       p.reloadTicks = 0;
@@ -272,13 +278,22 @@ export class ArenaRoom extends Room {
     const firing = (cmd.keys & KEY.FIRE) !== 0;
     const trigger = w.semiAuto ? firing && !p.prevFire : firing;
     p.prevFire = firing;
+    // Arma blanca: sin munición ni recarga
+    if (w.meleeRange > 0) {
+      if (trigger && p.fireCooldown === 0 && p.switchTicks === 0) {
+        p.fireCooldown = w.fireIntervalTicks;
+        this.meleeAttack(p);
+      }
+      return;
+    }
     if ((cmd.keys & KEY.RELOAD) && p.ammo[p.weapon] < w.magazine && p.reloadTicks === 0 && p.switchTicks === 0) {
       p.reloadTicks = w.reloadTicks;
     }
     if (trigger && p.fireCooldown === 0 && p.reloadTicks === 0 && p.switchTicks === 0 && p.ammo[p.weapon] > 0) {
       p.ammo[p.weapon]--;
       p.fireCooldown = w.fireIntervalTicks;
-      this.fire(p, (cmd.keys & KEY.AIM) !== 0);
+      if (w.projectile) this.launch(p);
+      else this.fire(p, (cmd.keys & KEY.AIM) !== 0);
       p.bloom = Math.min(1, p.bloom + w.bloom);
       if (p.ammo[p.weapon] === 0) p.reloadTicks = w.reloadTicks;
     }
@@ -344,24 +359,136 @@ export class ArenaRoom extends Room {
       }
     }
 
-    for (const [victim, { damage: rawDamage, headshot }] of damageTo) {
-      if (!victim.alive) continue;
-      const damage = Math.max(1, Math.round(rawDamage));
-      victim.hp = Math.max(0, victim.hp - damage);
-      const killed = victim.hp === 0;
+    for (const [victim, { damage, headshot }] of damageTo) this.applyDamage(p, victim, damage, headshot);
+  }
+
+  /** Aplica daño de `p` a `victim`: avisa a ambos y, si muere, cuenta la baja. */
+  private applyDamage(p: Player, victim: Player, rawDamage: number, headshot: boolean) {
+    if (!victim.alive || this.intermissionUntil) return;
+    const damage = Math.max(1, Math.round(rawDamage));
+    victim.hp = Math.max(0, victim.hp - damage);
+    const killed = victim.hp === 0;
+    if (victim !== p) {
       p.client.send("hit", { victim: victim.id, damage, headshot, kill: killed } satisfies HitMsg);
       victim.client.send("damaged", {
         fromAngle: Math.atan2(p.move.x - victim.move.x, p.move.z - victim.move.z),
       } satisfies DamagedMsg);
-      if (killed) {
-        victim.alive = false;
-        victim.deaths++;
-        victim.respawnAt = Date.now() + RESPAWN_MS;
-        p.kills++;
-        this.broadcast("kill", { killer: p.id, victim: victim.id, headshot } satisfies KillMsg);
-        if (p.kills >= FRAG_LIMIT) this.endRound(p);
-        this.sendRoster();
+    } else {
+      victim.client.send("damaged", { fromAngle: victim.yaw + Math.PI } satisfies DamagedMsg);
+    }
+    if (killed) {
+      victim.alive = false;
+      victim.deaths++;
+      victim.respawnAt = Date.now() + RESPAWN_MS;
+      // Matarse con el propio cohete resta una baja
+      if (victim === p) p.kills = Math.max(0, p.kills - 1);
+      else p.kills++;
+      this.broadcast("kill", { killer: p.id, victim: victim.id, headshot } satisfies KillMsg);
+      if (p.kills >= FRAG_LIMIT) this.endRound(p);
+      this.sendRoster();
+    }
+  }
+
+  /** Golpe con arma blanca: acierta al rival más cercano dentro del alcance y delante del jugador. */
+  private meleeAttack(p: Player) {
+    const w = p.stats[p.weapon];
+    const ox = p.move.x, oy = p.move.y + EYE_HEIGHT, oz = p.move.z;
+    const [dx, dy, dz] = aimDirection(p.yaw, p.pitch);
+    const rewind = Math.min(MAX_REWIND_TICKS, Math.round((p.rttMs / 2 + CLIENT_INTERP_MS) / (DT * 1000)));
+    let best: Player | null = null, bestD = Infinity;
+    for (const q of this.players.values()) {
+      if (q === p || !q.alive || this.intermissionUntil) continue;
+      const past = this.pastPosition(q, rewind);
+      if (!past.alive) continue;
+      // punto del cuerpo del rival más cercano a la altura de los ojos del atacante
+      const ty = Math.min(past.y + PLAYER_HEIGHT - 0.1, Math.max(past.y + 0.3, oy));
+      const vx = past.x - ox, vy = ty - oy, vz = past.z - oz;
+      const d = Math.hypot(vx, vy, vz);
+      if (d > w.meleeRange + 0.45 || d >= bestD) continue;
+      // dentro de un cono de ~40° (más abierto si está pegado)
+      const cos = d > 0.01 ? (vx * dx + vy * dy + vz * dz) / d : 1;
+      if (cos < (d < 1.2 ? 0.3 : 0.76)) continue;
+      if (!lineOfSight(ox, oy, oz, past.x, ty, past.z, this.map.boxes)) continue;
+      best = q; bestD = d;
+    }
+    for (const r of this.players.values()) {
+      if (r === p) continue;
+      const canSee = (r.lastSeen.get(p.id) ?? 0) > Date.now() - VISIBILITY_GRACE_MS;
+      if (canSee || r === best) r.client.send("swing", { id: p.id, hit: !!best } satisfies SwingMsg);
+    }
+    if (best) this.applyDamage(p, best, w.damage, false);
+  }
+
+  // ---------- Proyectiles de los cañones ----------
+
+  private projectiles: { id: number; owner: Player; slot: number; w: WeaponStats; x: number; y: number; z: number; dx: number; dy: number; dz: number; vy: number; life: number; age: number }[] = [];
+  private nextProjId = 1;
+
+  /** Lanza un proyectil desde los ojos del jugador. */
+  private launch(p: Player) {
+    const w = p.stats[p.weapon];
+    const pr = w.projectile!;
+    const [dx, dy, dz] = aimDirection(p.yaw, p.pitch);
+    const proj = {
+      id: this.nextProjId++, owner: p, slot: p.weapon, w,
+      x: p.move.x + dx * 0.5, y: p.move.y + EYE_HEIGHT - 0.12 + dy * 0.5, z: p.move.z + dz * 0.5,
+      dx, dy, dz, vy: 0, life: w.range / pr.speed, age: 0,
+    };
+    this.projectiles.push(proj);
+    this.broadcast("proj", {
+      id: proj.id, owner: p.id, slot: p.weapon, from: [proj.x, proj.y, proj.z], dir: [dx, dy, dz], speed: pr.speed, gravity: pr.gravity,
+    } satisfies ProjMsg);
+  }
+
+  private updateProjectiles() {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      const cfg = pr.w.projectile!;
+      // velocidad de este tick (la gravedad curva la trayectoria)
+      pr.vy -= cfg.gravity * DT;
+      let vx = pr.dx * cfg.speed, vy = pr.dy * cfg.speed + pr.vy, vz = pr.dz * cfg.speed;
+      const step = Math.hypot(vx, vy, vz) * DT;
+      vx /= step / DT; vy /= step / DT; vz /= step / DT;
+      let t = rayMap(pr.x, pr.y, pr.z, vx, vy, vz, step, this.map.boxes);
+      let direct: Player | null = null;
+      for (const q of this.players.values()) {
+        if (!q.alive || (q === pr.owner && pr.age < 6)) continue;
+        const hb = hitboxes(q.move.x, q.move.y, q.move.z);
+        const tq = Math.min(
+          rayBox(pr.x, pr.y, pr.z, vx, vy, vz, hb.head.min, hb.head.max),
+          rayBox(pr.x, pr.y, pr.z, vx, vy, vz, hb.body.min, hb.body.max),
+        );
+        if (tq < t) { t = tq; direct = q; }
       }
+      pr.age++;
+      pr.life -= DT;
+      if (t < step || pr.life <= 0 || !this.players.has(pr.owner.client.sessionId)) {
+        const d = Math.min(t, step);
+        this.explode(pr, pr.x + vx * d, pr.y + vy * d, pr.z + vz * d, direct, -vx, -vy, -vz);
+        this.projectiles.splice(i, 1);
+      } else {
+        pr.x += vx * step; pr.y += vy * step; pr.z += vz * step;
+      }
+    }
+  }
+
+  /** Explosión: daño completo al impacto directo y decreciente con la distancia para los demás. */
+  private explode(pr: { id: number; owner: Player; slot: number; w: WeaponStats }, x: number, y: number, z: number, direct: Player | null, bx: number, by: number, bz: number) {
+    const cfg = pr.w.projectile!;
+    this.broadcast("boom", { id: pr.id, owner: pr.owner.id, slot: pr.slot, pos: [x, y, z], radius: cfg.radius } satisfies BoomMsg);
+    // el punto de la explosión se separa un poco de la pared para comprobar la línea de visión
+    const ex = x + bx * 0.15, ey = y + by * 0.15, ez = z + bz * 0.15;
+    for (const q of [...this.players.values()]) {
+      if (!q.alive) continue;
+      if (q === direct) { this.applyDamage(pr.owner, q, pr.w.damage, false); continue; }
+      const cy = q.move.y + 0.9;
+      const d = Math.hypot(q.move.x - ex, cy - ey, q.move.z - ez);
+      if (d > cfg.radius) continue;
+      if (!lineOfSight(ex, ey, ez, q.move.x, cy, q.move.z, this.map.boxes) &&
+          !lineOfSight(ex, ey, ez, q.move.x, q.move.y + PLAYER_HEIGHT - 0.1, q.move.z, this.map.boxes)) continue;
+      const k = 1 - 0.8 * (d / cfg.radius);
+      // el propio tirador recibe la mitad
+      this.applyDamage(pr.owner, q, cfg.splash * k * (q === pr.owner ? 0.5 : 1), false);
     }
   }
 
@@ -381,11 +508,11 @@ export class ArenaRoom extends Room {
         continue;
       }
       for (const p of this.players.values()) {
-        if (!p.alive || p.hp >= MAX_HP) continue;
+        if (!p.alive || p.hp >= p.maxHp) continue;
         const dx = p.move.x - k.x, dz = p.move.z - k.z, dy = p.move.y - k.y;
         if (dx * dx + dz * dz < 1.1 * 1.1 && dy > -0.5 && dy < 1.5) {
           const before = p.hp;
-          p.hp = Math.min(MAX_HP, p.hp + k.amount);
+          p.hp = Math.min(p.maxHp, p.hp + k.amount);
           p.client.send("picked", { id: k.id, amount: p.hp - before } satisfies PickedMsg);
           this.pickupRespawn.set(k.id, now + k.respawnMs);
           changed = true;
@@ -414,7 +541,7 @@ export class ArenaRoom extends Room {
     Object.assign(p.move, { x: bestSpawn.x, y: 0, z: bestSpawn.z, vy: 0, onGround: true });
     p.yaw = bestSpawn.yaw;
     p.pitch = 0;
-    p.hp = MAX_HP;
+    p.hp = p.maxHp;
     p.alive = true;
     p.ammo = p.stats.map((x) => x.magazine);
     p.weapon = 0;
@@ -433,6 +560,7 @@ export class ArenaRoom extends Room {
   }
 
   private startRound() {
+    this.projectiles = [];
     this.intermissionUntil = 0;
     this.winner = null;
     for (const p of this.players.values()) {
@@ -448,7 +576,7 @@ export class ArenaRoom extends Room {
   private sendRoster() {
     const msg: RosterMsg = {
       players: [...this.players.values()].map((p) => ({
-        id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, alive: p.alive, loadout: p.loadout,
+        id: p.id, name: p.name, kills: p.kills, deaths: p.deaths, alive: p.alive, loadout: p.loadout, look: p.look, maxHp: p.maxHp,
       })),
       fragLimit: FRAG_LIMIT,
       intermission: this.intermissionUntil ? Math.max(0, this.intermissionUntil - Date.now()) : 0,
@@ -491,8 +619,9 @@ export class ArenaRoom extends Room {
           yaw: r.yaw,
           seq: r.lastSeq,
           hp: r.hp,
+          maxHp: r.maxHp,
           alive: r.alive,
-          ammo: r.ammo[r.weapon],
+          ammo: r.stats[r.weapon].meleeRange > 0 ? -1 : r.ammo[r.weapon],
           weapon: r.weapon,
           switching: r.switchTicks > 0,
           reloading: r.reloadTicks > 0,

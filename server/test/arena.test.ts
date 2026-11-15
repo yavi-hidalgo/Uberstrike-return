@@ -42,7 +42,7 @@ async function join(name: string, roomId?: string, extra: Record<string, unknown
   room.onMessage("welcome", (m) => (bot.id = m.id));
   room.onMessage("snap", (m) => (bot.last = m));
   room.onMessage("ping", (m) => room.send("pong", m));
-  for (const t of ["hit", "kill", "shot", "damaged", "roster", "picked", "pickups"]) {
+  for (const t of ["hit", "kill", "shot", "damaged", "roster", "picked", "pickups", "proj", "boom", "swing"]) {
     room.onMessage(t, (m) => bot.events.push({ type: t, msg: m }));
   }
   await sleep(150);
@@ -273,8 +273,8 @@ test("mapas: cada mapa tiene su propia partida", async () => {
 
 test("el daño baja con la distancia según el arma, y las de energía casi no lo pierden", async () => {
   const { damageFalloff, weaponStats, effectiveSpread } = await import("../../shared/src/weapons");
-  const rifle = weaponStats("f32fe06215"), smg = weaponStats("c503d96157"), shotgun = weaponStats("6db0ad4764");
-  const sniper = weaponStats("cdefd833b4"), energy = weaponStats("1b91aca44b");
+  const rifle = weaponStats("f32fe06215"), smg = weaponStats("2e9bf75870"), shotgun = weaponStats("6db0ad4764");
+  const sniper = weaponStats("bf79b7f1d4"), energy = weaponStats("2d0d341097");
   assert.equal(damageFalloff(rifle, 10), 1);
   assert.ok(damageFalloff(smg, 40) < damageFalloff(rifle, 40), "el subfusil pierde daño antes que el rifle");
   assert.ok(damageFalloff(shotgun, 30) < 0.3, "la escopeta casi no hace daño de lejos");
@@ -324,4 +324,85 @@ test("contenedores abiertos: se entra por la hoja abierta y el fondo detiene las
   // desde dentro, un disparo hacia el fondo choca con la pared trasera
   const t = rayMap(s.x, s.y + 1.6, s.z, 0, 0, 1, 50, m.boxes);
   assert.ok(Math.abs((s.z + t) - (c.z + c.d / 2 - 0.14)) < 0.05);
+});
+
+test("arma blanca: ranura 3, golpea de cerca, no gasta munición y da más velocidad", async () => {
+  const a = await join("Samurai", undefined, { melee: "778d3dfe4c" }); // katana (clase media)
+  const b = await join("Blanco3", a.room.roomId);
+  const pa = serverPlayer(a), pb = serverPlayer(b);
+  const k = weaponStats("778d3dfe4c");
+  assert.ok(k.meleeRange > 2 && k.speedK > 1);
+  Object.assign(pa.move, { x: -27, y: 0, z: -12, vy: 0, onGround: true, vx: 0, vz: 0 });
+  Object.assign(pb.move, { x: -27, y: 0, z: -10, vy: 0, onGround: true, vx: 0, vz: 0 }); // a 2 m
+  await sleep(400);
+  let seq = 0;
+  a.room.send("input", { seq: ++seq, keys: KEY.WEAPON3, yaw: Math.PI, pitch: 0 });
+  await sleep(600); // tiempo de cambio de arma
+  assert.equal(a.last!.you.weapon, 2);
+  assert.equal(a.last!.you.ammo, -1, "el arma blanca no tiene munición");
+  a.room.send("input", { seq: ++seq, keys: KEY.FIRE, yaw: Math.PI, pitch: 0 });
+  await sleep(300);
+  const hit = a.events.find((e) => e.type === "hit");
+  assert.ok(hit, "el golpe debe acertar a 2 m");
+  assert.equal(hit!.msg.damage, k.damage);
+  assert.equal(pb.hp, 100 - k.damage);
+  // a 6 m no llega
+  Object.assign(pb.move, { x: -27, y: 0, z: -6 });
+  a.events.length = 0;
+  await sleep(900);
+  a.room.send("input", { seq: ++seq, keys: 0, yaw: Math.PI, pitch: 0 });
+  await sleep(100);
+  a.room.send("input", { seq: ++seq, keys: KEY.FIRE, yaw: Math.PI, pitch: 0 });
+  await sleep(300);
+  assert.ok(!a.events.find((e) => e.type === "hit"), "fuera de alcance no acierta");
+  await a.room.leave();
+  await b.room.leave();
+});
+
+test("cañón de cohetes: el proyectil viaja, explota y hace daño en área (también a su dueño)", async () => {
+  const a = await join("Artillero", undefined, { primary: "bf7d92ee04" }); // bazuca
+  const b = await join("Blanco4", a.room.roomId);
+  const pa = serverPlayer(a), pb = serverPlayer(b);
+  const rk = weaponStats("bf7d92ee04");
+  assert.ok(rk.projectile && rk.projectile.radius > 3);
+  Object.assign(pa.move, { x: -27, y: 0, z: -14, vy: 0, onGround: true, vx: 0, vz: 0 });
+  Object.assign(pb.move, { x: -27.3, y: 0, z: -5, vy: 0, onGround: true, vx: 0, vz: 0 }); // a 9 m
+  await sleep(400);
+  // dispara al suelo delante del rival (cae ~1.5 m antes): yaw PI = hacia +z; un poco hacia abajo
+  a.room.send("input", { seq: 1, keys: KEY.FIRE, yaw: Math.PI, pitch: -0.2 });
+  await sleep(150);
+  assert.ok(a.events.find((e) => e.type === "proj"), "todos reciben el aviso del proyectil");
+  assert.equal(pb.hp, 100, "el cohete tarda en llegar: todavía no hay daño");
+  await sleep(700);
+  const boom = b.events.find((e) => e.type === "boom");
+  assert.ok(boom, "debe explotar");
+  assert.ok(pb.hp < 100 && pb.hp > 100 - rk.projectile!.splash, `daño en área parcial (vida ${pb.hp})`);
+  assert.equal(pa.hp, 100, "a 7 m la explosión no alcanza al tirador");
+  // disparo a los pies: el tirador se hace daño (la mitad)
+  await sleep(1300);
+  a.room.send("input", { seq: 2, keys: 0, yaw: Math.PI, pitch: -1.4 });
+  await sleep(100);
+  a.room.send("input", { seq: 3, keys: KEY.FIRE, yaw: Math.PI, pitch: -1.4 });
+  await sleep(500);
+  assert.ok(pa.hp < 100 && pa.hp >= 100 - Math.ceil(rk.projectile!.splash / 2), `el propio cohete hiere a su dueño (vida ${pa.hp})`);
+  await a.room.leave();
+  await b.room.leave();
+});
+
+test("equipo: suma vida máxima y lo inválido se descarta", async () => {
+  const { gearHp, validLook, GEAR } = await import("../../shared/src/gear");
+  const helmet = GEAR.find((g) => g.slot === "helmet")!, vest = GEAR.find((g) => g.slot === "vest")!, pack = GEAR.find((g) => g.slot === "pack")!;
+  const a = await join("Blindado", undefined, { skin: "1673131f9e", helmet: helmet.id, vest: vest.id, pack: pack.id });
+  const total = 100 + helmet.hp + vest.hp + pack.hp;
+  assert.equal(serverPlayer(a).maxHp, total);
+  assert.equal(a.last!.you.hp, total);
+  assert.equal(a.last!.you.maxHp, total);
+  // un casco en la ranura del chaleco, o un id inventado, no cuenta
+  const look = validLook({ skin: "no_existe", helmet: vest.id, vest: helmet.id, pack: "x" });
+  assert.deepEqual(look, { skin: "swat", helmet: "", vest: "", pack: "" });
+  assert.equal(gearHp(look), 0);
+  const b = await join("Tramposo2", undefined, { vest: "chaleco_de_9999", helmet: vest.id });
+  assert.equal(serverPlayer(b).maxHp, 100);
+  await a.room.leave();
+  await b.room.leave();
 });

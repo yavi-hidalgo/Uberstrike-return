@@ -56,8 +56,9 @@ export const KEY = {
   WEAPON2: 256,
   SPRINT: 512,
   AIM: 1024,
+  WEAPON3: 2048,
 } as const;
-export const KEY_MASK = 2047;
+export const KEY_MASK = 4095;
 
 export const MAX_PITCH = 1.5; // ~86 grados
 export const NAME_MAX_LEN = 16;

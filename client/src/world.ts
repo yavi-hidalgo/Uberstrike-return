@@ -145,7 +145,7 @@ export class World {
     this.scene.add(this.camera);
     this.setupWeaponScene();
     this.effects = new ShotEffects(this.scene, quality === "low" ? 24 : 64);
-    this.scene.add(this.remoteFlash);
+    this.scene.add(this.remoteFlash, this.projLight, this.boomLight);
 
     if (usePost) {
       this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType });
@@ -385,7 +385,7 @@ export class World {
   }
 
   /** Carga y coloca en primera persona el arma principal y la pistola elegidas. */
-  async equip(loadout: [string, string]) {
+  async equip(loadout: string[]) {
     await Promise.all(loadout.map(async (id, slot) => {
       const def = weaponModel(id);
       if (def?.arms) {
@@ -393,7 +393,7 @@ export class World {
         if (arms) { this.weapon.setSlotArms(slot, arms); return; }
       }
       const o = await weaponObject(id);
-      if (o) this.weapon.setSlotModel(slot, o, weaponAnchors(o));
+      if (o) this.weapon.setSlotModel(slot, o, weaponAnchors(o), { melee: def?.category === "melee" });
     }));
   }
 
@@ -496,6 +496,79 @@ export class World {
     this.remoteFlashT = 0.06;
   }
 
+  // ---------- Proyectiles de los cañones ----------
+
+  private projectiles: { id: number; mesh: THREE.Mesh; glow: THREE.Sprite; pos: THREE.Vector3; dir: THREE.Vector3; speed: number; gravity: number; vy: number; left: number; fx: WeaponFx; trailT: number; mine: boolean }[] = [];
+  private projLight = new THREE.PointLight(0xffb060, 0, 14, 2);
+  private boomLight = new THREE.PointLight(0xffb060, 0, 30, 2);
+  private boomT = 0;
+
+  /** Proyectil en vuelo. `maxDist`: distancia hasta el primer obstáculo (se oculta al llegar; la explosión la manda el servidor). */
+  spawnProjectile(id: number, from: THREE.Vector3, dir: THREE.Vector3, speed: number, gravity: number, maxDist: number, fx: WeaponFx, mine: boolean) {
+    const plasma = fx.energy || fx.cannon === "plasma";
+    const color = plasma ? fx.color : 0xffc070;
+    const geo = plasma ? new THREE.SphereGeometry(0.11, 12, 8) : new THREE.CylinderGeometry(0.045, 0.06, 0.5, 8);
+    if (!plasma) geo.rotateX(Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, plasma
+      ? new THREE.MeshBasicMaterial({ color: 0xffffff })
+      : new THREE.MeshStandardMaterial({ color: 0x4a4f48, roughness: 0.5, metalness: 0.6 }));
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: softSprite("rgba(255,255,255,1)"), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    glow.scale.setScalar(plasma ? 1.1 : 0.7);
+    mesh.add(glow);
+    if (!plasma) glow.position.z = 0.3; // llama del motor, detrás del cohete
+    mesh.position.copy(from);
+    mesh.lookAt(from.clone().add(dir));
+    this.scene.add(mesh);
+    this.projectiles.push({ id, mesh, glow, pos: from.clone(), dir: dir.clone(), speed, gravity, vy: 0, left: maxDist, fx, trailT: 0, mine });
+  }
+
+  /** Quita un proyectil (al explotar). Si no se conoce el id y es propio, quita el más antiguo propio. */
+  private removeProjectile(id: number, mine: boolean) {
+    let i = this.projectiles.findIndex((p) => p.id === id);
+    if (i < 0 && mine) i = this.projectiles.findIndex((p) => p.mine);
+    if (i < 0) return;
+    const p = this.projectiles[i];
+    this.scene.remove(p.mesh);
+    p.mesh.geometry.dispose();
+    (p.mesh.material as THREE.Material).dispose();
+    p.glow.material.dispose();
+    this.projectiles.splice(i, 1);
+  }
+
+  explode(id: number, pos: THREE.Vector3, radius: number, fx: WeaponFx, mine: boolean) {
+    this.removeProjectile(id, mine);
+    const plasma = fx.energy || fx.cannon === "plasma";
+    this.effects.explosion(pos, radius, { energy: plasma, color: fx.color });
+    this.boomLight.color.set(plasma ? fx.color : 0xffb060);
+    this.boomLight.position.copy(pos).add(new THREE.Vector3(0, 0.4, 0));
+    this.boomLight.intensity = 160;
+    this.boomT = 0.22;
+  }
+
+  private updateProjectiles(dt: number) {
+    let lit = false;
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i];
+      p.vy -= p.gravity * dt;
+      const v = p.dir.clone().multiplyScalar(p.speed); v.y += p.vy;
+      const step = v.length() * dt;
+      p.left -= step;
+      if (p.left <= -p.speed * 0.6) { this.removeProjectile(p.id, false); continue; } // el servidor no avisó: se descarta
+      if (p.left <= 0) { p.mesh.visible = false; continue; }
+      p.pos.addScaledVector(v, dt);
+      p.mesh.position.copy(p.pos);
+      p.mesh.lookAt(p.pos.clone().add(v));
+      p.trailT -= dt;
+      if (p.trailT <= 0) { this.effects.trail(p.pos, { energy: p.fx.energy || p.fx.cannon === "plasma", color: p.fx.color }); p.trailT = 0.03; }
+      if (!lit) { this.projLight.position.copy(p.pos); this.projLight.color.set(p.fx.energy || p.fx.cannon === "plasma" ? p.fx.color : 0xffb060); this.projLight.intensity = 30; lit = true; }
+    }
+    if (!lit) this.projLight.intensity = 0;
+    if (this.boomT > 0) { this.boomT -= dt; this.boomLight.intensity = Math.max(0, 160 * (this.boomT / 0.22)); }
+  }
+
+  /** Golpe del arma blanca en primera persona. */
+  swing(seconds: number) { this.weapon.swing(seconds); }
+
   /** Número de daño flotando sobre el jugador al que se acertó, y salpicadura. */
   damageNumber(victimId: number, damage: number, headshot: boolean, kill: boolean) {
     const av = this.avatars.get(victimId);
@@ -585,6 +658,7 @@ export class World {
     for (const a of this.avatars.values()) a.update(dt);
 
     this.tracerFx.update(dt);
+    this.updateProjectiles(dt);
     if (this.remoteFlashT > 0) { this.remoteFlashT -= dt; if (this.remoteFlashT <= 0) this.remoteFlash.intensity = 0; }
     for (let i = this.numbers.length - 1; i >= 0; i--) {
       const n = this.numbers[i];

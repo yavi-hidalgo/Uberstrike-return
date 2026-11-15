@@ -106,10 +106,30 @@ export const sfx = {
    * Disparo según el arma: cada tipo suena distinto, las de energía tienen su propio timbre
    * y cada modelo un tono ligeramente diferente. `volume` < 1 para disparos lejanos de otros.
    */
-  weapon: (fx: { category: string; energy: boolean; pitch: number }, volume = 1) => {
+  weapon: (fx: { category: string; energy: boolean; pitch: number; cannon?: string }, volume = 1) => {
     rate = fx.pitch * (0.97 + Math.random() * 0.06);
     vol = volume;
     const far = volume < 0.999;
+    if (fx.category === "melee") { sfx.swing(); rate = 1; vol = 1; return; }
+    if (fx.cannon === "rocket") {
+      // lanzamiento: golpe grave y silbido del motor
+      noise(0.5, "lowpass", 500, 0.7, 1.6); tone(110, 0.3, 0.5, "sine", 40); noise(0.9, "bandpass", 1600, 0.22, 1.1, 1.5, 0.05); tone(700, 0.7, 0.08, "sawtooth", 260, 0.05);
+      rate = 1; vol = 1; return;
+    }
+    if (fx.cannon === "plasma") {
+      tone(420, 0.28, 0.4, "sawtooth", 90); tone(1300, 0.16, 0.16, "square", 300); noise(0.22, "bandpass", 1100, 0.3, 2, 1.2); tone(60, 0.2, 0.35, "sine", 35);
+      rate = 1; vol = 1; return;
+    }
+    if (fx.cannon === "minigun") {
+      noise(0.03, "highpass", 3000, 0.34, 3); noise(0.07, "lowpass", 2000, 0.34, 2.6); tone(170, 0.05, 0.22, "sine", 70);
+      if (fx.energy) tone(1500, 0.05, 0.12, "sawtooth", 600);
+      rate = 1; vol = 1; return;
+    }
+    if (fx.cannon === "rail") {
+      tone(240, 0.07, 0.2, "sawtooth", 1900); tone(2600, 0.5, 0.36, "sawtooth", 90, 0.06); noise(0.08, "highpass", 5000, 0.5, 3, 0.7, 0.06);
+      noise(1.2, "bandpass", 1400, 0.14, 1, 2.5, 0.1); tone(70, 0.35, 0.4, "sine", 32, 0.06);
+      rate = 1; vol = 1; return;
+    }
     if (fx.energy) {
       switch (fx.category) {
         case "smg": // ráfaga de pulsos cortos y agudos
@@ -143,6 +163,17 @@ export const sfx = {
       if (!far && fx.category === "sniper") { noise(0.05, "bandpass", 1800, 0.18, 2, 4, 0.5); noise(0.06, "bandpass", 1300, 0.2, 2, 4, 0.72); }
     }
     rate = 1; vol = 1;
+  },
+  /** Arma blanca cortando el aire. */
+  swing: () => { noise(0.18, "bandpass", 900, 0.22, 1.6, 1.4); noise(0.12, "highpass", 2500, 0.08, 2, 1, 0.04); },
+  /** Golpe de arma blanca que acierta. */
+  thud: () => { noise(0.1, "lowpass", 600, 0.5, 2); tone(95, 0.12, 0.4, "sine", 50); noise(0.05, "highpass", 3000, 0.15, 3); },
+  /** Explosión: más fuerte cuanto más cerca (volume 0..1). */
+  explosion: (volume: number, big: boolean) => {
+    vol = Math.max(0.08, volume);
+    noise(big ? 1.4 : 0.7, "lowpass", big ? 320 : 600, 0.9, 1.3); tone(big ? 70 : 110, big ? 0.6 : 0.3, 0.7, "sine", 28);
+    noise(0.12, "highpass", 2000, 0.4, 3); noise(big ? 2 : 1, "bandpass", 180, 0.25, 1, 0.4, 0.06);
+    vol = 1;
   },
   /** Impacto de energía cercano: chisporroteo. */
   zap: (volume: number) => { vol = volume; noise(0.12, "highpass", 2600, 0.12, 2, 2); tone(420, 0.1, 0.08, "square", 120); vol = 1; },

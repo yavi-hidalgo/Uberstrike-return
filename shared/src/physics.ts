@@ -95,7 +95,8 @@ export function boxesNear(boxes: Box[], minX: number, maxX: number, minZ: number
 const near: Box[] = [];
 
 /** Avanza un tick de simulación. Modifica `s` en el lugar. */
-export function stepMove(s: MoveState, keys: number, yaw: number, dt: number, boxes: Box[] = MAP_BOXES): void {
+/** `speedK` multiplica la velocidad según el arma en la mano (arma blanca: más rápido; minigun: más lento). */
+export function stepMove(s: MoveState, keys: number, yaw: number, dt: number, boxes: Box[] = MAP_BOXES, speedK = 1): void {
   let fx = 0, fz = 0;
   if (keys & KEY.FORWARD) fz += 1;
   if (keys & KEY.BACK) fz -= 1;
@@ -111,7 +112,7 @@ export function stepMove(s: MoveState, keys: number, yaw: number, dt: number, bo
   // Velocidad deseada: correr solo hacia delante y sin apuntar; apuntando se va más lento
   const aiming = (keys & KEY.AIM) !== 0;
   const sprint = (keys & KEY.SPRINT) !== 0 && fz > 0 && !aiming && !(keys & KEY.FIRE);
-  const top = sprint ? SPRINT_SPEED : aiming ? MOVE_SPEED * AIM_SPEED_K : MOVE_SPEED;
+  const top = (sprint ? SPRINT_SPEED : aiming ? MOVE_SPEED * AIM_SPEED_K : MOVE_SPEED) * speedK;
   const tx = len > 0 ? (vx / len) * top : 0, tz = len > 0 ? (vz / len) * top : 0;
   // Aceleración y fricción: la velocidad se acerca a la deseada en vez de saltar a ella
   const wasGround = s.onGround;
@@ -131,7 +132,7 @@ export function stepMove(s: MoveState, keys: number, yaw: number, dt: number, bo
   s.onGround = false;
 
   // Solo revisamos las cajas cercanas al recorrido de este tick
-  const reach = PLAYER_RADIUS + SPRINT_SPEED * dt + 0.2;
+  const reach = PLAYER_RADIUS + SPRINT_SPEED * 1.2 * dt + 0.2;
   const cand = boxesNear(boxes, s.x - reach, s.x + reach, s.z - reach, s.z + reach, near);
 
   // Si algo bloquea el paso pero es un escalón bajo y hay sitio encima, se sube.
