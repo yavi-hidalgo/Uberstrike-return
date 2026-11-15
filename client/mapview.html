@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="UTF-8" /><title>Vista de mapa</title></head>
+<body style="margin:0;overflow:hidden;background:#000">
+<!-- Herramienta de desarrollo: dibuja un mapa desde una cámara fija, sin servidor.
+     Uso: /mapview.html?map=factory&q=medium&cam=x,y,z,yaw,pitch -->
+<canvas id="c" style="width:100vw;height:100vh;display:block"></canvas>
+<script type="module">
+import { World } from "/src/world.ts";
+import { mapById } from "../shared/src/maps.ts";
+const q = new URLSearchParams(location.search);
+const world = new World(document.getElementById("c"), q.get("q") || "medium", mapById(q.get("map") || "factory"));
+await world.load();
+const [x, y, z, yaw, pitch] = (q.get("cam") || "0,0,0,0,0").split(",").map(Number);
+world.setView(x, y, z, yaw, pitch);
+world.weapon.root.visible = false;
+const view = { speed: 0, onGround: true, lookDX: 0, lookDY: 0, reloading: false, alive: false, aiming: false };
+for (let i = 0; i < 3; i++) world.render(0.016, view);
+// esperar a que lleguen las texturas (se cargan en segundo plano)
+await new Promise((r) => setTimeout(r, 6000));
+for (let i = 0; i < 3; i++) world.render(0.016, { speed: 0, onGround: true, lookDX: 0, lookDY: 0, reloading: false, alive: false, aiming: false });
+window.__done = true;
+</script>
+</body>
+</html>

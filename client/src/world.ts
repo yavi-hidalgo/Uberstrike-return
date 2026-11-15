@@ -19,6 +19,8 @@ import { softSprite } from "./textures";
 import { weaponModel } from "../../shared/src/weapons";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { N8AOPostPass } from "n8ao";
+import { buildExpansion, type ExpansionVisuals } from "./expansion";
 
 export type Quality = "low" | "medium" | "high";
 
@@ -61,6 +63,11 @@ export class World {
   private time = 0;
   /** El arma en primera persona se dibuja en su propia escena, con luz de estudio. */
   private hemi!: THREE.HemisphereLight;
+  /** Luz principal (sol, luna o luz del planeta en el hangar) y su sombra que sigue a la cámara. */
+  private sun!: THREE.DirectionalLight;
+  private sunDir = MOON_DIR.clone();
+  private shadowHalf = 0;
+  private expansion: ExpansionVisuals | null = null;
   private weaponScene = new THREE.Scene();
   private weaponCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 20);
 
@@ -113,6 +120,16 @@ export class World {
     moon.shadow.normalBias = 0.03;
     if (quality === "high") moon.shadow.radius = 3;
     this.scene.add(moon);
+    this.sun = moon;
+    // Mapas grandes: la sombra cubre un cuadrado alrededor del jugador (más nítida que cubrir todo el mapa)
+    if (mapDef.model && quality !== "low") {
+      this.shadowHalf = quality === "high" ? 48 : 40;
+      sc.left = sc.bottom = -this.shadowHalf;
+      sc.right = sc.top = this.shadowHalf;
+      sc.far = 320;
+      moon.shadow.bias = -0.0003;
+      moon.shadow.normalBias = 0.04;
+    }
 
     // Mapa: construido por código (observatorio) o escenario modelado (se carga en load())
     this.map = mapDef.model ? buildPickups(quality, mapDef.pickups) : buildMap(quality);
@@ -127,6 +144,14 @@ export class World {
     if (usePost) {
       this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType });
       this.composer.addPass(new RenderPass(this.scene, this.camera));
+      // Oclusión ambiental: sombras de contacto en rincones, bajo objetos y entre piezas
+      const ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+      ao.configuration.aoRadius = 2.2;
+      ao.configuration.distanceFalloff = 1.2;
+      ao.configuration.intensity = 2.6;
+      ao.configuration.halfRes = quality !== "high";
+      ao.configuration.gammaCorrection = false;
+      this.composer.addPass(ao);
       this.composer.addPass(new WeaponPass(this.weaponScene, this.weaponCamera, () => this.weapon.root.visible));
       const effects: Effect[] = [
         new BloomEffect({ intensity: 1.1, luminanceThreshold: 0.75, luminanceSmoothing: 0.2, mipmapBlur: true, radius: 0.7 }),
@@ -152,26 +177,30 @@ export class World {
         { url: `${base}assets/soldiers/tactical.glb`, hasGun: false },
       ]),
       loadPropModels(),
-      this.loadSkyLight(`${base}assets/hdri/rogland_clear_night_1k.hdr`),
+      this.mapDef.model && !this.mapDef.indoor
+        ? this.loadSunsetSky(`${base}assets/hdri/industrial_sunset_02_puresky_2k.hdr`)
+        : this.loadSkyLight(`${base}assets/hdri/rogland_clear_night_1k.hdr`),
       this.mapDef.model ? this.loadMapModel() : Promise.resolve(),
+      this.mapDef.expansion
+        ? buildExpansion(this.mapDef.expansion, this.quality, { indoor: !!this.mapDef.indoor }).then((v) => { this.expansion = v; this.scene.add(v.group); this.addExpansionLights(); })
+        : Promise.resolve(),
     ]);
     if (this.mapDef.model) {
-      // Noche urbana: más luz de ambiente para que se lean las texturas del escenario.
-      // Se aplica al final porque el cielo HDRI se carga en paralelo y fija su propia intensidad.
-      this.scene.environmentIntensity = 2.2;
-      this.renderer.toneMappingExposure = 1.35;
-      this.hemi.intensity = 1.7;
       if (this.mapDef.indoor) {
-        // Interior: sin cielo ni montañas, luz artificial fría y algo de bruma
-        this.env.group.visible = false;
+        // Interior: luz artificial fría, algo de bruma y el cielo estrellado solo visible por la ventana del hangar
+        this.scene.environmentIntensity = 2.2;
+        this.renderer.toneMappingExposure = 1.35;
+        this.env.group.children.forEach((c, i) => { c.visible = i === 0; });
         this.scene.background = new THREE.Color(0x05070c);
-        this.scene.fog = new THREE.FogExp2(0x0b1018, 0.018);
+        this.scene.fog = new THREE.FogExp2(0x0b1018, 0.014);
         this.hemi.color.set(0xbfd4ff);
         this.hemi.groundColor.set(0x3a3f4a);
-        this.hemi.intensity = 2.2;
-      } else {
-        // Niebla nocturna entre los edificios
-        this.scene.fog = new THREE.FogExp2(0x1d2540, 0.012);
+        this.hemi.intensity = 2.0;
+        this.addPlanet();
+        // Luz del planeta que entra por la ventana del hangar (sin sombras se filtraría por todos lados)
+        this.sunDir.set(0.86, 0.42, 0.28).normalize();
+        this.sun.color.set(0xc6dcff);
+        this.sun.intensity = this.quality === "low" ? 0 : 4;
       }
       return;
     }
@@ -195,6 +224,8 @@ export class World {
     root.scale.setScalar(m.scale);
     root.position.y = m.groundOffset;
     const shadows = this.quality !== "low";
+    const sunset = !this.mapDef.indoor;
+    for (const name of m.hide ?? []) { const o = root.getObjectByName(name); if (o) o.visible = false; }
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -206,7 +237,7 @@ export class World {
         if (sm.map) sm.map.anisotropy = 8;
         // Lámparas encendidas y ventanas con algo de luz interior
         if (/^(Lights|LampPosts)/i.test(sm.name)) { sm.emissive = new THREE.Color(0xffc27a); sm.emissiveIntensity = /^Lights/i.test(sm.name) ? 2.5 : 0.25; }
-        if (/Windows/i.test(sm.name)) { sm.emissive = new THREE.Color(0x4a3418); sm.emissiveIntensity = 0.55; sm.emissiveMap = sm.map; }
+        if (/Windows/i.test(sm.name)) { sm.emissive = new THREE.Color(0x4a3418); sm.emissiveIntensity = sunset ? 0.18 : 0.55; sm.emissiveMap = sm.map; }
         // Vallas, rejas, cables y carteles usan el canal alfa de la textura: recorte nítido
         // (también proyecta sombras con su forma) en lugar de mezcla, que se ordena mal.
         if (sm.transparent || sm.alphaTest > 0) {
@@ -240,6 +271,110 @@ export class World {
         l.position.copy(p);
         this.scene.add(l);
       }
+    }
+  }
+
+  /**
+   * Atardecer: el cielo es una foto HDR (Poly Haven, CC0). Se busca el píxel más brillante para
+   * orientar el sol exactamente donde está en la foto, con su color, y la niebla toma el tono del horizonte.
+   */
+  private async loadSunsetSky(url: string) {
+    try {
+      const loader = new HDRLoader();
+      loader.setDataType(THREE.FloatType);
+      const hdr = await loader.loadAsync(url);
+      hdr.mapping = THREE.EquirectangularReflectionMapping;
+      const { width: W, height: H, data } = hdr.image as { width: number; height: number; data: Float32Array };
+      const lum = (i: number) => 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+      let best = 0, bx = 0, by = 0;
+      for (let y = 0; y < H / 2; y += 2) for (let x = 0; x < W; x += 2) { const l = lum((y * W + x) * 4); if (l > best) { best = l; bx = x; by = y; } }
+      const u = (bx + 0.5) / W, v = 1 - (by + 0.5) / H;
+      const phi = (u - 0.5) * Math.PI * 2;
+      let lat = (v - 0.5) * Math.PI;
+      lat = Math.max(lat, THREE.MathUtils.degToRad(16)); // sol muy bajo = todo en sombra: se sube un poco
+      this.sunDir.set(Math.cos(phi) * Math.cos(lat), Math.sin(lat), Math.sin(phi) * Math.cos(lat)).normalize();
+      // color del sol: promedio alrededor del píxel más brillante, normalizado
+      const col = new THREE.Color(0, 0, 0);
+      for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+        const i = (Math.min(H - 1, Math.max(0, by + dy)) * W + ((bx + dx + W) % W)) * 4;
+        col.r += data[i]; col.g += data[i + 1]; col.b += data[i + 2];
+      }
+      const mx = Math.max(col.r, col.g, col.b) || 1;
+      col.multiplyScalar(1 / mx);
+      this.sun.color.copy(col).lerp(new THREE.Color(0xffd2a0), 0.35);
+      this.sun.intensity = 3.4;
+      // niebla: color medio del horizonte
+      const hz = new THREE.Color(0, 0, 0);
+      const row = Math.floor(H * 0.5) - 3;
+      for (let x = 0; x < W; x += 4) { const i = (row * W + x) * 4; hz.r += data[i]; hz.g += data[i + 1]; hz.b += data[i + 2]; }
+      const hm = Math.max(hz.r, hz.g, hz.b) || 1;
+      hz.multiplyScalar(0.5 / hm);
+      this.scene.fog = new THREE.FogExp2(hz, 0.0024);
+      this.scene.background = hdr;
+      this.scene.backgroundIntensity = 1;
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromEquirectangular(hdr).texture;
+      pmrem.dispose();
+      this.scene.environmentIntensity = 0.85;
+      this.renderer.toneMappingExposure = 1.0;
+      this.hemi.color.set(0xa8b8d8);
+      this.hemi.groundColor.set(0x4a3a30);
+      this.hemi.intensity = 0.35;
+      this.env.group.visible = false;
+    } catch (e) {
+      console.warn("Sin cielo de atardecer; se usa la noche.", e);
+    }
+  }
+
+  /** Planeta que se ve por la ventana del hangar. */
+  private addPlanet() {
+    const mat = new THREE.ShaderMaterial({
+      fog: false,
+      uniforms: { uSun: { value: new THREE.Vector3(0.3, 0.5, -0.8).normalize() } },
+      vertexShader: "varying vec3 vN; varying vec3 vP; void main(){ vN = normalize(normal); vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+      fragmentShader: `uniform vec3 uSun; varying vec3 vN; varying vec3 vP;
+        float h(vec3 p){ p = fract(p * 0.3183 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+        float n(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0-2.0*f);
+          return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),
+                     mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
+        void main(){
+          vec3 p = normalize(vP) * 3.0;
+          float c = n(p) * 0.5 + n(p * 2.1) * 0.3 + n(p * 4.3) * 0.2;
+          float cl = smoothstep(0.55, 0.8, n(p * 1.7 + 7.0) * 0.6 + n(p * 5.0) * 0.4);
+          vec3 sea = vec3(0.05, 0.16, 0.32), land = mix(vec3(0.32, 0.27, 0.18), vec3(0.18, 0.3, 0.16), n(p * 3.0));
+          vec3 col = mix(sea, land, smoothstep(0.5, 0.56, c));
+          col = mix(col, vec3(0.92), cl);
+          float d = max(dot(vN, uSun), 0.0);
+          float rim = pow(1.0 - abs(dot(vN, vec3(-1.0, 0.0, 0.0))), 3.0);
+          gl_FragColor = vec4(col * (0.04 + d * 1.6) + vec3(0.3, 0.55, 1.0) * rim * (0.2 + d), 1.0);
+        }`,
+    });
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(260, 64, 32), mat);
+    planet.position.set(820, -120, 60);
+    planet.rotation.z = 0.4;
+    this.scene.add(planet);
+  }
+
+  /** Luces de la ampliación: focos del patio (solo brillo) y tubos del hangar (luces reales). */
+  private addExpansionLights() {
+    const e = this.mapDef.expansion;
+    if (!e) return;
+    const max = this.quality === "high" ? 10 : this.quality === "medium" ? 6 : 0;
+    const glowTex = softSprite(this.mapDef.indoor ? "rgba(200,225,255,0.45)" : "rgba(255,214,150,0.6)");
+    let n = 0;
+    for (const [x, y, z, kind] of e.lights) {
+      if (kind !== 2) {
+        // al atardecer los focos recién se encienden: brillo suave
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.4 }));
+        glow.position.set(x, y - 0.3, z);
+        glow.scale.setScalar(kind === 1 ? 2.6 : 1.4);
+        this.scene.add(glow);
+        continue;
+      }
+      if (n++ >= max) continue;
+      const l = new THREE.PointLight(0xdfe9ff, 110, 30, 1.5);
+      l.position.set(x, y - 1.2, z);
+      this.scene.add(l);
     }
   }
 
@@ -399,6 +534,15 @@ export class World {
   render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean; aiming: boolean; reloadSeconds?: number }) {
     this.time += dt;
     this.env.update(dt, this.time, this.camera.position);
+    this.expansion?.update(this.time);
+    if (this.shadowHalf > 0) {
+      // la caja de sombra sigue a la cámara, alineada a la grilla de píxeles de la sombra (sin parpadeo)
+      const texel = (this.shadowHalf * 2) / this.sun.shadow.mapSize.x;
+      const c = this.camera.position;
+      const tx = Math.round(c.x / texel) * texel, tz = Math.round(c.z / texel) * texel;
+      this.sun.target.position.set(tx, 0, tz);
+      this.sun.position.copy(this.sunDir).multiplyScalar(150).add(this.sun.target.position);
+    }
     if (this.map.dome) this.map.dome.rotation.y += dt * 0.02;
     const blink = Math.sin(this.time * 3) > 0.2;
     for (const b of this.map.blinkers) b.visible = blink;

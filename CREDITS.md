@@ -91,3 +91,32 @@ Se modificaron: texturas comprimidas a WebP y encuadre calculado a partir del es
 | Soldier Full Tactical Gear (LowPolyGameReady) | DanlyVostok | [sketchfab](https://sketchfab.com/3d-models/none-850593a8c7114c188395ba1849a66eb9) |
 
 Se modificaron: geometría reducida, texturas comprimidas a WebP, y animación de caminar, correr, saltar y caer añadida por código sobre su pose de reposo.
+
+## Ampliación de los mapas
+
+### Sketchfab (CC Attribution 4.0)
+
+| Objeto | Autor | Enlace |
+|---|---|---|
+| Classic Shipping Container (Free/Gameready) | Sebastian Webster | [sketchfab](https://sketchfab.com/3d-models/none-772f4be391a245f699c54e6cf157c58d) |
+| Sci-fi Dropship | Pascal T. Monette | [sketchfab](https://sketchfab.com/3d-models/none-709a1916c0cc4cbebe197e7ef26964cb) |
+| Sci-Fi crate / ammunition box (1) | ul1tka | [sketchfab](https://sketchfab.com/3d-models/none-69fe3211493c4a4db26ad0c4e2e49a83) |
+| Sci-Fi crate / ammunition box (2) | ul1tka | [sketchfab](https://sketchfab.com/3d-models/none-342efe4d70f94d37a4edd66a15c39502) |
+
+Se modificaron: texturas comprimidas a WebP, escala y color (contenedores teñidos en varios tonos).
+
+### Poly Haven (CC0)
+
+Modelos: modular_factory_facade (fachadas de ladrillo armadas pieza por pieza), concrete_road_barrier, concrete_road_barrier_02,
+covered_car, rollershutter_door, security_light, metal_trash_can, old_tyre, wooden_crate_02, wooden_military_crate,
+mounted_fluorescent_lights, industrial_pastic_container, exterior_aircon_unit, old_military_crate, plastic_crate_03,
+propane_tank, steel_frame_shelves_02.
+
+Texturas: asphalt_02, concrete_floor_worn_001, corrugated_iron, concrete_wall_007, rusty_metal_02, blue_metal_plate,
+concrete_floor_painted, metal_plate_02.
+
+Cielo HDRI: industrial_sunset_02_puresky.
+
+### Otras librerías
+
+- [N8AO](https://github.com/N8python/n8ao) (licencia ISC): oclusión ambiental en pantalla.

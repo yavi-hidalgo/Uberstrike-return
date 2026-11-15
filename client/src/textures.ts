@@ -276,7 +276,7 @@ function photo(file: string, kind: "diff" | "nor" | "arm", metersPerTile: number
   return t;
 }
 
-function photoMaterial(file: string, meters: number, opts: { tint?: number; metalness?: number; normal?: number } = {}): THREE.MeshStandardMaterial {
+export function photoMaterial(file: string, meters: number, opts: { tint?: number; metalness?: number; normal?: number } = {}): THREE.MeshStandardMaterial {
   const arm = photo(file, "arm", meters);
   const m = new THREE.MeshStandardMaterial({
     map: photo(file, "diff", meters),

@@ -10,6 +10,7 @@
   "dependencies": {
     "@fontsource/saira-condensed": "5.2.8",
     "colyseus.js": "0.16.22",
+    "n8ao": "^1.10.1",
     "postprocessing": "6.39.5",
     "three": "0.181.0"
   },
