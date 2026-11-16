@@ -78,10 +78,10 @@ Para jugar con alguien de tu misma red Wi-Fi, comparte la dirección "Network" q
 | Clic izquierdo | disparar |
 | `Espacio` | saltar |
 | `R` | recargar |
-| `1` / `2` | arma principal / pistola |
+| `1` / `2` / `3` | arma principal / pistola / arma blanca |
 | Clic derecho | apuntar: más precisión y zoom, pero se camina más lento (los francotiradores usan mira telescópica) |
 | `Tab` | ver el marcador |
-| `Esc` | soltar el ratón |
+| `Esc` | pausa: ajustes de sensibilidad y volumen, y salir al menú |
 
 Los botiquines rojos (+25 a +50 de vida) aparecen sobre el techo del observatorio, en las terrazas y en los extremos norte y sur del mapa.
 

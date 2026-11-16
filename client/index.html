@@ -55,38 +55,16 @@
       <div id="click-to-play" class="hidden">Haz clic para jugar</div>
     </div>
 
-    <div id="menu">
-      <div class="card">
-        <p class="map-name" id="map-name">Fábrica abandonada · noche</p>
-        <h1>ARENA<span>RUSH</span></h1>
-        <form id="join-form">
-          <label for="name">Tu nombre</label>
-          <input id="name" maxlength="16" autocomplete="nickname" placeholder="Jugador" required />
-          <label for="map-select">Mapa</label>
-          <select id="map-select"></select>
-          <label for="quality">Calidad gráfica</label>
-          <select id="quality">
-            <option value="low">Baja: PCs modestos y portátiles</option>
-            <option value="medium">Media: sombras y brillo</option>
-            <option value="high">Alta: sombras suaves y antialiasing</option>
-          </select>
-          <label for="primary">Arma principal</label>
-          <select id="primary"></select>
-          <div class="weapon-info" id="primary-info"></div>
-          <label for="secondary">Pistola</label>
-          <select id="secondary"></select>
-          <div class="weapon-info" id="secondary-info"></div>
-          <label for="melee">Arma blanca</label>
-          <select id="melee"></select>
-          <div class="weapon-info" id="melee-info"></div>
-          <button type="submit" id="join-btn">Jugar</button>
-          <div id="menu-error" role="alert"></div>
-        </form>
-        <div class="controls">
-          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> moverse · <kbd>Shift</kbd> correr · <kbd>Espacio</kbd> saltar</div>
-          <div><kbd>Clic</kbd> disparar · <kbd>Clic der.</kbd> apuntar · <kbd>R</kbd> recargar · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> arma</div>
-          <div><kbd>Tab</kbd> marcador · <kbd>Esc</kbd> soltar ratón</div>
-        </div>
+    <div id="menu"></div>
+
+    <div id="pause" class="hidden" role="dialog" aria-label="Pausa">
+      <div class="pause-card">
+        <h2>Pausa</h2>
+        <button type="button" id="pause-resume">Continuar</button>
+        <label class="m-field"><span>Sensibilidad del ratón</span><div class="m-range"><input type="range" id="pause-sens" min="0.3" max="2.5" step="0.05" /><output id="pause-sens-out"></output></div></label>
+        <label class="m-field"><span>Volumen de efectos</span><div class="m-range"><input type="range" id="pause-volume" min="0" max="1" step="0.05" /><output id="pause-volume-out"></output></div></label>
+        <label class="m-field"><span>Volumen de música</span><div class="m-range"><input type="range" id="pause-music" min="0" max="1" step="0.05" /><output id="pause-music-out"></output></div></label>
+        <button type="button" id="pause-exit" class="ghost">Salir al menú</button>
       </div>
     </div>
 

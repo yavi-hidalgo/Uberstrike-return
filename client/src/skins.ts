@@ -63,6 +63,8 @@ export function loadSkin(id: string): Promise<SkinTemplate | null> {
 
 export function skinReady(id: string): boolean { return ready.has(id); }
 
+export function loadGearModel(id: string): Promise<THREE.Object3D | null> { return loadGear(id); }
+
 function loadGear(id: string): Promise<THREE.Object3D | null> {
   let p = gearCache.get(id);
   if (!p) {

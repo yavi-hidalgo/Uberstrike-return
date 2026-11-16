@@ -1,13 +1,14 @@
 // Sonidos sintetizados con Web Audio (sin archivos externos).
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let masterVolume = 0.8;
 
 function ac(): AudioContext | null {
   try {
     if (!ctx) {
       ctx = new AudioContext();
       master = ctx.createGain();
-      master.gain.value = 0.8;
+      master.gain.value = masterVolume;
       // Un compresor evita que los disparos seguidos saturen
       const comp = ctx.createDynamicsCompressor();
       master.connect(comp).connect(ctx.destination);
@@ -18,6 +19,9 @@ function ac(): AudioContext | null {
     return null;
   }
 }
+
+/** Contexto de audio compartido (lo usa también la música). */
+export function audioContext(): AudioContext | null { return ac(); }
 
 const noiseCache = new Map<number, AudioBuffer>();
 function noiseBuffer(a: AudioContext, duration: number): AudioBuffer {
@@ -74,6 +78,8 @@ function tone(freq: number, duration: number, gain: number, type: OscillatorType
 
 export const sfx = {
   unlock: () => void ac(),
+  /** Volumen general de los efectos (0..1). */
+  setVolume: (v: number) => { masterVolume = Math.max(0, Math.min(1, v)); if (master) master.gain.value = masterVolume; },
   /** Disparo propio: chasquido + golpe grave + cola. */
   shoot: () => {
     noise(0.05, "highpass", 2500, 0.5, 3);

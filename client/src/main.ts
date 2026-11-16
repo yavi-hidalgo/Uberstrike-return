@@ -18,6 +18,8 @@ import { DEFAULT_MAP, MAPS, PLAYABLE_MAPS, mapById } from "../../shared/src/maps
 import { sfx } from "./audio";
 import { weaponFx } from "./fx";
 import { validLook, type Look } from "../../shared/src/gear";
+import { createMenu, loadState, type Settings } from "./menu";
+import { music } from "./music";
 
 // Dirección del servidor de juego. En producción se define con VITE_SERVER_URL.
 const SERVER_URL: string =
@@ -93,112 +95,80 @@ let lastKiller: string | null = null;
 const remoteBuffer: { t: number; others: Map<number, OtherSnapshot> }[] = [];
 
 // ---------- Menú y conexión ----------
-const form = $<HTMLFormElement>("join-form");
-const nameInput = $<HTMLInputElement>("name");
-const qualitySel = $<HTMLSelectElement>("quality");
-const joinBtn = $<HTMLButtonElement>("join-btn");
-const menuError = $("menu-error");
-try { nameInput.value = localStorage.getItem("arena.name") ?? ""; } catch { /* sin storage */ }
-qualitySel.value = quality;
-$("map-name").textContent = mapDef.indoor ? mapDef.name : `${mapDef.name} · noche`;
-// Selector de mapa: cambiarlo recarga el juego con el mapa elegido
-const mapSel = $<HTMLSelectElement>("map-select");
-for (const id of PLAYABLE_MAPS) mapSel.append(new Option(MAPS[id].name, id));
-mapSel.value = mapDef.id;
-mapSel.addEventListener("change", () => {
-  try { localStorage.setItem("arena.map", mapSel.value); } catch { /* sin storage */ }
-  const url = new URL(location.href);
-  url.searchParams.set("map", mapSel.value);
-  location.href = url.toString();
-});
-qualitySel.addEventListener("change", () => {
-  try { localStorage.setItem("arena.quality", qualitySel.value as Quality); } catch { /* sin storage */ }
-  location.reload();
-});
+const menuState = loadState();
+loadout = menuState.loadout;
+look = menuState.look;
+slotStats = loadout.map((id) => weaponStats(id));
+let mouseSens = MOUSE_SENS * menuState.settings.sens;
+function applySettings(st: Settings) {
+  mouseSens = MOUSE_SENS * st.sens;
+  sfx.setVolume(st.volume);
+  music.setVolume(st.music);
+}
+applySettings(menuState.settings);
+/** Salida pedida por el jugador (no es un error de conexión). */
+let leaving = false;
 
-// Selectores de armas agrupados por tipo
-const primarySel = $<HTMLSelectElement>("primary");
-const secondarySel = $<HTMLSelectElement>("secondary");
-const order: Category[] = ["rifle", "smg", "shotgun", "sniper", "cannon"];
-for (const cat of order) {
-  for (const fut of [false, true]) {
-    const list = WEAPON_MODELS.filter((w) => w.category === cat && w.futuristic === fut);
-    if (!list.length) continue;
-    const g = document.createElement("optgroup");
-    g.label = `${CATEGORY_NAMES[cat]}${fut ? " · futurista" : ""}`;
-    for (const w of list) g.append(new Option(w.name, w.id));
-    primarySel.append(g);
-  }
-}
-for (const w of WEAPON_MODELS.filter((x) => x.category === "pistol")) {
-  secondarySel.append(new Option(`${w.name}${w.futuristic ? " (futurista)" : ""}`, w.id));
-}
-const meleeSel = $<HTMLSelectElement>("melee");
-for (const w of WEAPON_MODELS.filter((x) => x.category === "melee")) meleeSel.append(new Option(w.name, w.id));
-primarySel.value = loadout[0];
-secondarySel.value = loadout[1];
-meleeSel.value = loadout[2];
-function describe(id: string): string {
-  const m = weaponModel(id);
-  if (!m) return "";
-  const st = weaponStats(id);
-  const rate = Math.round(30 / st.fireIntervalTicks * 10) / 10;
-  const by = m.author ? ` · modelo de ${m.author}` : "";
-  if (st.meleeRange > 0) return `Arma blanca ${m.melee === "light" ? "ligera" : m.melee === "heavy" ? "pesada" : "media"} · daño ${st.damage} · ${rate} golpes/s · alcance ${st.meleeRange} m · +${Math.round((st.speedK - 1) * 100)} % de velocidad${by}`;
-  if (st.projectile) return `Cañón de ${m.cannon === "plasma" ? "plasma" : "cohetes"} · impacto ${st.damage} · explosión ${st.projectile.splash} en ${st.projectile.radius} m · ${rate} disp/s · cargador ${st.magazine}${by}`;
-  if (m.cannon === "minigun") return `Minigun · daño ${st.damage} · ${rate} disp/s · cargador ${st.magazine} · te vuelve un ${Math.round((1 - st.speedK) * 100)} % más lento${by}`;
-  if (m.cannon === "rail") return `Cañón de riel · daño ${st.damage} · ${rate} disp/s · cargador ${st.magazine} · rayo instantáneo${by}`;
-  const dmg = st.pellets > 1 ? `${st.pellets}×${st.damage}` : `${st.damage}`;
-  const reach = st.energy ? "energía: no pierde daño con la distancia, poco retroceso"
-    : st.falloffMin >= 1 ? "daño completo a cualquier distancia" : `daño completo hasta ${st.falloffStart} m, ${Math.round(st.falloffMin * 100)} % desde ${st.falloffEnd} m`;
-  return `${CATEGORY_NAMES[m.category]} · daño ${dmg} · ${rate} disp/s · cargador ${st.magazine} · ${reach}${st.scope ? " · mira telescópica" : ""}${m.author ? ` · modelo de ${m.author}` : ""}`;
-}
-function updateLoadoutInfo() {
-  $("primary-info").textContent = describe(primarySel.value);
-  $("secondary-info").textContent = describe(secondarySel.value);
-  $("melee-info").textContent = describe(meleeSel.value);
-}
-primarySel.addEventListener("change", updateLoadoutInfo);
-secondarySel.addEventListener("change", updateLoadoutInfo);
-meleeSel.addEventListener("change", updateLoadoutInfo);
-updateLoadoutInfo();
-
-joinBtn.disabled = true;
-joinBtn.textContent = "Cargando…";
-worldReady.then(() => {
-  joinBtn.disabled = false;
-  joinBtn.textContent = "Jugar";
-});
-
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = nameInput.value.trim() || "Jugador";
-  loadout = validLoadout(primarySel.value, secondarySel.value, meleeSel.value);
-  slotStats = loadout.map((id) => weaponStats(id));
-  try {
-    localStorage.setItem("arena.name", name);
-    localStorage.setItem("arena.primary", loadout[0]);
-    localStorage.setItem("arena.secondary", loadout[1]);
-    localStorage.setItem("arena.melee", loadout[2]);
-  } catch { /* sin storage */ }
-  joinBtn.disabled = true;
-  menuError.textContent = "";
-  sfx.unlock();
-  try {
+const menu = createMenu($("menu"), {
+  mapId: mapDef.id,
+  quality,
+  state: menuState,
+  onMap(id) {
+    try { localStorage.setItem("arena.map", id); } catch { /* sin storage */ }
+    const url = new URL(location.href);
+    url.searchParams.set("map", id);
+    location.href = url.toString();
+  },
+  onQuality(q) {
+    try { localStorage.setItem("arena.quality", q as Quality); } catch { /* sin storage */ }
+    location.reload();
+  },
+  onSettings: applySettings,
+  async onPlay(st) {
+    loadout = validLoadout(st.loadout[0], st.loadout[1], st.loadout[2]);
+    look = { ...st.look };
+    slotStats = loadout.map((id) => weaponStats(id));
+    sfx.unlock();
     await worldReady;
-    joinBtn.textContent = "Preparando armas…";
+    menu.setBusy("Preparando armas…");
     await world.equip(loadout);
-    joinBtn.textContent = "Jugar";
-    await connect(name);
-    $("menu").classList.add("hidden");
+    menu.setBusy("Conectando…");
+    await connect(st.name.trim() || "Jugador");
+    menu.hide();
+    music.setMode("game");
     $("hud").classList.remove("hidden");
     requestLock();
-  } catch (err) {
-    console.error(err);
-    menuError.textContent = "No se pudo conectar al servidor. ¿Está encendido?";
-  } finally {
-    joinBtn.disabled = false;
-  }
+  },
+});
+menu.setBusy("Cargando…");
+menu.show();
+music.setMode("menu");
+void worldReady.then(() => menu.setBusy(null));
+
+// ---------- Pausa (Esc) ----------
+const pause = $("pause");
+function bindRange(id: string, key: keyof Settings, fmt: (v: number) => string) {
+  const input = $<HTMLInputElement>(id), out = $(`${id}-out`);
+  const sync = () => { input.value = String(menuState.settings[key]); out.textContent = fmt(menuState.settings[key]); };
+  input.addEventListener("input", () => {
+    menuState.settings[key] = parseFloat(input.value);
+    out.textContent = fmt(menuState.settings[key]);
+    try { localStorage.setItem(`arena.${key}`, input.value); } catch { /* sin storage */ }
+    applySettings(menuState.settings);
+  });
+  return sync;
+}
+const pct = (v: number) => `${Math.round(v * 100)} %`;
+const syncPause = [bindRange("pause-sens", "sens", (v) => `${v.toFixed(2)}×`), bindRange("pause-volume", "volume", pct), bindRange("pause-music", "music", pct)];
+function showPause(on: boolean) {
+  if (on) syncPause.forEach((f) => f());
+  pause.classList.toggle("hidden", !on);
+}
+$("pause-resume").addEventListener("click", () => { showPause(false); requestLock(); });
+$("pause-exit").addEventListener("click", () => {
+  leaving = true;
+  showPause(false);
+  void room?.leave();
 });
 
 async function connect(name: string) {
@@ -235,12 +205,19 @@ async function connect(name: string) {
   });
   room.onLeave((code) => {
     room = null;
+    snapshotsReceived = 0;
+    pending = [];
+    remoteBuffer.length = 0;
+    for (const id of world.avatarIds()) world.removeAvatar(id);
     document.exitPointerLock?.();
+    showPause(false);
     $("hud").classList.add("hidden");
-    $("menu").classList.remove("hidden");
-    menuError.textContent = code === 4001
+    menu.show();
+    music.setMode("menu");
+    menu.setError(leaving ? "" : code === 4001
       ? "Has sido expulsado por comportamiento sospechoso."
-      : "Se perdió la conexión con el servidor.";
+      : "Se perdió la conexión con el servidor.");
+    leaving = false;
   });
 }
 
@@ -312,6 +289,7 @@ function onRemoteShot(s: ShotMsg) {
   if (lastShotSound.get(s.id) !== undefined && now - lastShotSound.get(s.id)! < 25) return;
   lastShotSound.set(s.id, now);
   sfx.weapon(fx, Math.max(0.1, Math.min(0.85, 1 - d / 70)));
+  music.bump(d < 40 ? 0.12 : 0.04);
   // Silbido si la bala pasa cerca de la cabeza
   const eye = new THREE.Vector3(pred.x, pred.y + EYE_HEIGHT, pred.z);
   const along = Math.max(0, Math.min(dist, eye.clone().sub(from).dot(dir)));
@@ -372,11 +350,13 @@ function onHit(h: HitMsg) {
   if (h.kill) sfx.kill();
   else sfx.hit(h.headshot, h.damage);
   world.damageNumber(h.victim, h.damage, h.headshot, h.kill);
+  music.bump(0.25);
 }
 
 function onDamaged(m: DamagedMsg) {
   flash("damage-flash", 280);
   sfx.hurt();
+  music.bump(0.35);
   shake = Math.min(0.05, shake + 0.022);
   // Indicador de dirección: ángulo del atacante relativo a hacia dónde miro.
   // fromAngle = atan2(dx, dz); mi frente es (-sin(yaw), -cos(yaw)) => atan2 = yaw + PI
@@ -410,13 +390,16 @@ canvas.addEventListener("click", () => {
   if (room && document.pointerLockElement !== canvas) requestLock();
 });
 document.addEventListener("pointerlockchange", () => {
-  $("click-to-play").classList.toggle("hidden", !room || document.pointerLockElement === canvas);
+  // Al soltar el ratón (Esc) durante la partida se abre la pausa
+  const locked = document.pointerLockElement === canvas;
+  $("click-to-play").classList.add("hidden");
+  if (room) showPause(!locked);
   if (document.pointerLockElement !== canvas) mouseDown = false;
 });
 document.addEventListener("mousemove", (e) => {
   if (document.pointerLockElement !== canvas) return;
-  yaw -= e.movementX * MOUSE_SENS;
-  pitch -= e.movementY * MOUSE_SENS;
+  yaw -= e.movementX * mouseSens;
+  pitch -= e.movementY * mouseSens;
   pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch));
   lookDX += e.movementX;
   lookDY += e.movementY;
@@ -565,6 +548,7 @@ function predictLocalFire(keys: number) {
   }
   world.localShot(hits, pred.y, fx);
   sfx.weapon(fx);
+  music.bump(0.05);
   // Retroceso: la mira sube y se desvía; apuntando se controla mejor
   const control = (keys & KEY.AIM) ? 0.65 : 1;
   recoilPitch += fx.recoilUp * control * (0.85 + Math.random() * 0.3);
@@ -731,7 +715,9 @@ function frame(now: number) {
     const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
     const rad = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) * (mapDef.model ? 0.55 : 0.37);
     const h = mapDef.model ? 18 : 4.5;
-    world.setView(cx + Math.sin(a) * rad, h, cz + Math.cos(a) * rad, a, mapDef.model ? -0.38 : -0.12);
+    // En interiores la cámara gira dentro del hangar (desde afuera no se ve nada)
+    if (mapDef.indoor) world.setView(40, 5.5, 21, a * 2, -0.12);
+    else world.setView(cx + Math.sin(a) * rad, h, cz + Math.cos(a) * rad, a, mapDef.model ? -0.38 : -0.12);
   }
 
   updateRemotes(now);
