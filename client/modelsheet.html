@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="UTF-8" /><title>Hoja de modelos</title></head>
+<body style="margin:0;background:#111"><canvas id="out"></canvas>
+<!-- Herramienta de desarrollo: dibuja varios modelos en una grilla para revisar orientación y tamaño.
+     Uso: /modelsheet.html?dir=assets/gear&ids=a,b,c&view=front|side|iso&cols=6 -->
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+const q = new URLSearchParams(location.search);
+const ids = q.get("ids").split(","); const dir = q.get("dir") || "assets/weapons"; const view = q.get("view") || "side";
+const W = 300, H = 260, cols = +(q.get("cols") || 6);
+const out = document.getElementById("out"); out.width = W * cols; out.height = H * Math.ceil(ids.length / cols);
+const ctx = out.getContext("2d");
+const c = document.createElement("canvas"); c.width = W; c.height = H;
+const r = new THREE.WebGLRenderer({ canvas: c, antialias: true, preserveDrawingBuffer: true });
+r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
+const env = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+const l = new GLTFLoader(); l.setMeshoptDecoder(MeshoptDecoder);
+for (let i = 0; i < ids.length; i++) {
+  const s = new THREE.Scene(); s.background = new THREE.Color(0x3a4658); s.environment = env;
+  s.add(new THREE.DirectionalLight(0xffffff, 2));
+  const x = (i % cols) * W, y = Math.floor(i / cols) * H;
+  try {
+    const g = (await l.loadAsync(`/${dir}/${ids[i]}.glb`)).scene; s.add(g);
+    const b = new THREE.Box3().setFromObject(g), z = b.getSize(new THREE.Vector3()), ctr = b.getCenter(new THREE.Vector3());
+    const d = view === "front" ? new THREE.Vector3(0, 0, 1) : view === "iso" ? new THREE.Vector3(0.7, 0.45, 1).normalize() : new THREE.Vector3(1, 0, 0);
+    const half = Math.max(z.x, z.y, z.z) * 0.62;
+    const cam = new THREE.OrthographicCamera(-half * W / H, half * W / H, half, -half, 0.001, half * 50);
+    cam.position.copy(ctr).addScaledVector(d, half * 10); cam.lookAt(ctr);
+    r.render(s, cam);
+    ctx.drawImage(c, x, y);
+    ctx.fillStyle = "#ffd"; ctx.font = "13px sans-serif";
+    ctx.fillText(`${ids[i]}  ${z.x.toFixed(2)}×${z.y.toFixed(2)}×${z.z.toFixed(2)}`, x + 5, y + 14);
+  } catch (e) { ctx.fillStyle = "#f66"; ctx.fillText(ids[i] + " ERROR", x + 5, y + 14); }
+}
+window.__done = true;
+</script></body></html>

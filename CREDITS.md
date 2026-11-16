@@ -137,3 +137,43 @@ Cielo HDRI: industrial_sunset_02_puresky.
 ### Otras librerías
 
 - [N8AO](https://github.com/N8python/n8ao) (licencia ISC): oclusión ambiental en pantalla.
+
+## Skins y equipo (Sketchfab, CC Attribution 4.0)
+
+| Skin | Autor | Enlace |
+|---|---|---|
+| Astronauta oscura | Charles Cloutier | [sketchfab](https://sketchfab.com/3d-models/none-1b2d325edc814d068e920add2ecc8a32) |
+| Traje antirradiación | sanyaork | [sketchfab](https://sketchfab.com/3d-models/none-2e815542505d48d8be91e9f7dbebfd0a) |
+| Astronauta | LasquetiSpice | [sketchfab](https://sketchfab.com/3d-models/none-137d62cd820a4a6eba75304a11fb6f81) |
+| Piloto | 3DRaven | [sketchfab](https://sketchfab.com/3d-models/none-7949d8eb4d594f5ea4f524e0197a012b) |
+| Soldado ruso | doctortex | [sketchfab](https://sketchfab.com/3d-models/none-e9aa211b67264dc086af1d2f4d4e3d84) |
+| Piloto Tantalus | tegnemaskin | [sketchfab](https://sketchfab.com/3d-models/none-7c02e58adc654904a686095dee29c362) |
+
+| Equipo | Tipo | Autor | Enlace |
+|---|---|---|---|
+| Casco médico | Casco | vanhalen3d | [sketchfab](https://sketchfab.com/3d-models/none-009f007cd0a240d1bc7b970157ef3df0) |
+| Casco scifi | Casco | kunkun | [sketchfab](https://sketchfab.com/3d-models/none-5697331ee00c4f13ad18005a6c82f7ef) |
+| Casco de moto | Casco | Tom Verbeeck | [sketchfab](https://sketchfab.com/3d-models/none-43e1596b7548478ab4a12ee433cedd5d) |
+| Casco espacial | Casco | bluoppVR | [sketchfab](https://sketchfab.com/3d-models/none-7b095c71ce844118bf5fc9af2f3accd0) |
+| Casco de astronauta | Casco | Medhatelo | [sketchfab](https://sketchfab.com/3d-models/none-315605194a474c7b95cd2a9083985d22) |
+| Casco Sci-Fi | Casco | circles | [sketchfab](https://sketchfab.com/3d-models/none-19b5c8574bb84229944d9753ff8bed38) |
+| Casco táctico con auriculares | Casco | Exactly | [sketchfab](https://sketchfab.com/3d-models/none-82adf376164f4d99a4e0b2949930e2ad) |
+| Casco Sci Fi negro | Casco | CAPTAAINRO | [sketchfab](https://sketchfab.com/3d-models/none-c707c7162a134a36baea12338e3bf1a1) |
+| Casco negro 2 | Casco | 3DWorkbench | [sketchfab](https://sketchfab.com/3d-models/none-df7b04e4f6ba483e8fd536ad5cd52d22) |
+| Kabuto | Casco | Vala | [sketchfab](https://sketchfab.com/3d-models/none-f35b65897cc1478198a0a08c49dea263) |
+| Casco táctico V.I.P.R | Casco | KallMor | [sketchfab](https://sketchfab.com/3d-models/none-0dca440a0d8649aabb1de9ca5b5f2d35) |
+| Casco de moto clásico | Casco | zeleniy89 | [sketchfab](https://sketchfab.com/3d-models/none-a4d4ef2f17c843828cf24d538a9edbd3) |
+| Máscara de diseño | Casco | oswaldo.madrid2012 | [sketchfab](https://sketchfab.com/3d-models/none-d1cf5bcc3c4e4e03b7e8686ed8f75756) |
+| Máscara de gas | Casco | stayalivedudexxx | [sketchfab](https://sketchfab.com/3d-models/none-8d4ac12671a0459b889a7ab631d9501e) |
+| Casco negro | Casco | 3DWorkbench | [sketchfab](https://sketchfab.com/3d-models/none-fb2230b152824463a75e903d38d035a8) |
+| Visor nocturno | Casco | AntijnvanderGun | [sketchfab](https://sketchfab.com/3d-models/none-10c5c86971ff443caba9a7e2fe33abd1) |
+| Casco de combate K6-3 | Casco | shamanoff | [sketchfab](https://sketchfab.com/3d-models/none-94701874d8b949718708b018c8d4f61d) |
+| Chaleco militar | Chaleco | kane_sk06 | [sketchfab](https://sketchfab.com/3d-models/none-cc510a8975df43a3b34a5fbe5edc332b) |
+| Chaleco blindado | Chaleco | 3DWorkbench | [sketchfab](https://sketchfab.com/3d-models/none-b0431f9c3c724f9cbe0238f307c8cac0) |
+| Peto Sci-fi | Chaleco | Mikesaz | [sketchfab](https://sketchfab.com/3d-models/none-34a4d75cf75f4543ba3b7a2bf3c6f48e) |
+| Chaleco | Chaleco | Santeri Riikonen | [sketchfab](https://sketchfab.com/3d-models/none-a1a17b557c464838b9e770d3d5099d54) |
+| Mochila gris | Mochila | kj3987 | [sketchfab](https://sketchfab.com/3d-models/none-e00d974c4e994e76a8f69e7e3fdf0a30) |
+| Mochila de asalto | Mochila | Pnuky | [sketchfab](https://sketchfab.com/3d-models/none-b0b2ea81529f46afaaff94f30bf0e954) |
+| Mochila militar | Mochila | Neslihan Çakmak | [sketchfab](https://sketchfab.com/3d-models/none-06be5c0f15aa4aa3af8ebcc4c83d02a3) |
+
+Se modificaron: texturas comprimidas a WebP, geometría reducida en los modelos pesados, materiales convertidos a metal-rugosidad, pose de combate y paso al caminar añadidos por código, y el equipo escalado y colocado sobre los huesos de cada personaje.

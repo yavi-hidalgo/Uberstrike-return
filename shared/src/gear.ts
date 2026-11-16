@@ -12,12 +12,7 @@ export const SKINS: Skin[] = [
   { id: "tactical", name: "Soldado táctico", author: "DanlyVostok", source: "https://sketchfab.com/3d-models/none-850593a8c7114c188395ba1849a66eb9" },
   { id: "1b2d325edc", name: "Astronauta oscura", author: "Charles Cloutier", source: "https://sketchfab.com/3d-models/none-1b2d325edc814d068e920add2ecc8a32" },
   { id: "2e81554250", name: "Traje antirradiación", author: "sanyaork", source: "https://sketchfab.com/3d-models/none-2e815542505d48d8be91e9f7dbebfd0a" },
-  { id: "daeecbd492", name: "Unidad Hazard", author: "legitbanana", source: "https://sketchfab.com/3d-models/none-daeecbd492f34f619944f5a3004cae11" },
-  { id: "1673131f9e", name: "Ninja cíborg", author: "T-Art", source: "https://sketchfab.com/3d-models/none-1673131f9e914d60af48d2dd51b85339" },
   { id: "137d62cd82", name: "Astronauta", author: "LasquetiSpice", source: "https://sketchfab.com/3d-models/none-137d62cd820a4a6eba75304a11fb6f81" },
-  { id: "c856a60242", name: "Androide médico", author: "efforya", source: "https://sketchfab.com/3d-models/none-c856a602428944a98f222c83658222a4" },
-  { id: "a0bbe21231", name: "Ninja", author: "Shadow Models 3D", source: "https://sketchfab.com/3d-models/none-a0bbe212318b4ee9bfaec55a3e060227" },
-  { id: "6943935336", name: "Mercenario", author: "Fghdd42", source: "https://sketchfab.com/3d-models/none-69439353368d4a99b358f7211a82d9c2" },
   { id: "7949d8eb4d", name: "Piloto", author: "3DRaven", source: "https://sketchfab.com/3d-models/none-7949d8eb4d594f5ea4f524e0197a012b" },
   { id: "e9aa211b67", name: "Soldado ruso", author: "doctortex", source: "https://sketchfab.com/3d-models/none-e9aa211b67264dc086af1d2f4d4e3d84" },
   { id: "7c02e58adc", name: "Piloto Tantalus", author: "tegnemaskin", source: "https://sketchfab.com/3d-models/none-7c02e58adc654904a686095dee29c362" },
@@ -32,7 +27,6 @@ export const GEAR: GearItem[] = [
   { id: "19b5c8574b", slot: "helmet", name: "Casco Sci-Fi", author: "circles", source: "https://sketchfab.com/3d-models/none-19b5c8574bb84229944d9753ff8bed38", hp: 15 },
   { id: "82adf37616", slot: "helmet", name: "Casco táctico con auriculares", author: "Exactly", source: "https://sketchfab.com/3d-models/none-82adf376164f4d99a4e0b2949930e2ad", hp: 20 },
   { id: "c707c7162a", slot: "helmet", name: "Casco Sci Fi negro", author: "CAPTAAINRO", source: "https://sketchfab.com/3d-models/none-c707c7162a134a36baea12338e3bf1a1", hp: 14 },
-  { id: "1a001cd572", slot: "helmet", name: "Casco del futuro", author: "back", source: "https://sketchfab.com/3d-models/none-1a001cd5723d45ee846067613bfed1ec", hp: 16 },
   { id: "df7b04e4f6", slot: "helmet", name: "Casco negro 2", author: "3DWorkbench", source: "https://sketchfab.com/3d-models/none-df7b04e4f6ba483e8fd536ad5cd52d22", hp: 12 },
   { id: "f35b65897c", slot: "helmet", name: "Kabuto", author: "Vala", source: "https://sketchfab.com/3d-models/none-f35b65897cc1478198a0a08c49dea263", hp: 18 },
   { id: "0dca440a0d", slot: "helmet", name: "Casco táctico V.I.P.R", author: "KallMor", source: "https://sketchfab.com/3d-models/none-0dca440a0d8649aabb1de9ca5b5f2d35", hp: 22 },
@@ -54,7 +48,10 @@ export const GEAR: GearItem[] = [
 const SKIN_IDS = new Set(SKINS.map((s) => s.id));
 const GEAR_BY_ID = new Map(GEAR.map((g) => [g.id, g]));
 
-export const DEFAULT_SKIN = "swat";
+export const DEFAULT_SKIN = "e9aa211b67"; // Soldado ruso
+
+/** Skins anteriores: ya traen su propio casco y chaleco modelados, así que el equipo no se dibuja encima. */
+export const LEGACY_SKINS = ["swat", "operator", "tactical"];
 
 /** Aspecto de un jugador: skin y equipo (cadena vacía = sin esa pieza). */
 export interface Look { skin: string; helmet: string; vest: string; pack: string }

@@ -5,6 +5,8 @@ import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { MAX_HP, PLAYER_HEIGHT } from "../../shared/src/constants";
 import { softSprite } from "./textures";
+import { LEGACY_SKINS, type Look } from "../../shared/src/gear";
+import { buildCharacter, loadSkin, type Character } from "./skins";
 
 const PLAYER_COLORS = [0xd94b3b, 0x3b7dd9, 0x3fae5a, 0xe0a83a, 0x9a5ad9, 0x2fb8b0, 0xd95aa8, 0xe8e8e8];
 
@@ -20,14 +22,14 @@ export async function loadAvatarModel(url: string): Promise<void> {
 
 // ---------- Soldados ----------
 interface SoldierTemplate { gltf: GLTF; scale: number; offset: THREE.Vector3; hasGun: boolean }
-const soldiers: SoldierTemplate[] = [];
+const soldiers: (SoldierTemplate | undefined)[] = [];
 
 /** Carga los soldados. `hasGun`: el modelo ya trae su rifle en las manos. */
 export async function loadSoldierModels(list: { url: string; hasGun: boolean }[]): Promise<void> {
   const { MeshoptDecoder } = await import("three/addons/libs/meshopt_decoder.module.js");
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
-  await Promise.all(list.map(async ({ url, hasGun }) => {
+  await Promise.all(list.map(async ({ url, hasGun }, index) => {
     try {
       const gltf = await loader.loadAsync(url);
       // Tamaño en la pose de reposo (con los huesos aplicados)
@@ -43,7 +45,7 @@ export async function loadSoldierModels(list: { url: string; hasGun: boolean }[]
       const h = box.max.y - box.min.y || 1;
       const scale = PLAYER_HEIGHT / h;
       const offset = new THREE.Vector3(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2).multiplyScalar(scale);
-      soldiers.push({ gltf, scale, offset, hasGun });
+      soldiers[index] = { gltf, scale, offset, hasGun };
     } catch (e) {
       console.warn("No se pudo cargar un soldado", url, e);
     }
@@ -97,12 +99,29 @@ export class Avatar {
   private stride = 0;
   private body: THREE.Object3D | null = null;
   private fallT = 0;
+  /** Skin nueva con esqueleto posado por código (y su equipo). */
+  private char: Character | null = null;
 
-  constructor(readonly id: number, name: string) {
+  constructor(readonly id: number, name: string, look?: Look) {
     this.name = name;
     const color = new THREE.Color(PLAYER_COLORS[id % PLAYER_COLORS.length]);
-    if (soldiers.length) {
-      const t = soldiers[id % soldiers.length];
+    const legacy = look ? LEGACY_SKINS.indexOf(look.skin) : id % 3;
+    const soldier = legacy >= 0 ? soldiers[legacy] : undefined;
+    if (look && legacy < 0) {
+      // Skin nueva: se carga en segundo plano y aparece al estar lista
+      const body = new THREE.Group();
+      this.body = body;
+      this.group.add(body);
+      this.weaponHolder.visible = true;
+      void loadSkin(look.skin).then(() => {
+        const ch = buildCharacter(look.skin);
+        if (!ch) return;
+        this.char = ch;
+        body.add(ch.body);
+        void ch.setGear(look);
+      });
+    } else if (soldier) {
+      const t = soldier;
       const model = SkeletonUtils.clone(t.gltf.scene) as THREE.Object3D;
       model.scale.multiplyScalar(t.scale);
       model.position.copy(t.offset);
@@ -176,7 +195,7 @@ export class Avatar {
     this.group.add(blob);
 
     // El arma va sujeta a la altura del pecho y apunta hacia donde mira el jugador
-    this.weaponHolder.position.set(0.24, 1.08, -0.15);
+    this.weaponHolder.position.set(look && legacy < 0 ? 0.15 : 0.24, 1.08, -0.15);
     this.group.add(this.weaponHolder);
 
     this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: makeTag(name, MAX_HP), depthTest: true, transparent: true }));
@@ -240,6 +259,7 @@ export class Avatar {
 
   /** Paso de caminar/correr y salto, sumados a la pose que dejó la animación de reposo. */
   private animateLegs(dt: number) {
+    if (this.char) { this.char.update(dt, this.speed, Math.abs(this.vy) > 1.2); return; }
     if (!this.legs) return;
     const airborne = Math.abs(this.vy) > 1.2;
     const sp = Math.min(this.speed, 8);

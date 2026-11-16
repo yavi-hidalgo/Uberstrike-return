@@ -399,7 +399,7 @@ test("equipo: suma vida máxima y lo inválido se descarta", async () => {
   assert.equal(a.last!.you.maxHp, total);
   // un casco en la ranura del chaleco, o un id inventado, no cuenta
   const look = validLook({ skin: "no_existe", helmet: vest.id, vest: helmet.id, pack: "x" });
-  assert.deepEqual(look, { skin: "swat", helmet: "", vest: "", pack: "" });
+  assert.deepEqual(look, { skin: "e9aa211b67", helmet: "", vest: "", pack: "" });
   assert.equal(gearHp(look), 0);
   const b = await join("Tramposo2", undefined, { vest: "chaleco_de_9999", helmet: vest.id });
   assert.equal(serverPlayer(b).maxHp, 100);

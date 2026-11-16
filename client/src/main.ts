@@ -604,7 +604,7 @@ function updateRemotes(now: number) {
   for (const [id, sb] of b.others) {
     const sa = a.others.get(id) ?? sb;
     const name = roster.get(id)?.name ?? "?";
-    const av = world.upsertAvatar(id, name);
+    const av = world.upsertAvatar(id, name, roster.get(id)?.look);
     if (av.dyingUntil) av.revive();
     av.group.visible = true;
     av.setPose(lerp(sa[1], sb[1], alpha), lerp(sa[2], sb[2], alpha), lerp(sa[3], sb[3], alpha), lerpAngle(sa[4], sb[4], alpha), dt);

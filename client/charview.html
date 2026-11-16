@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="UTF-8" /><title>Vista de personajes</title></head>
+<body style="margin:0;background:#111"><canvas id="out"></canvas>
+<!-- Herramienta de desarrollo: dibuja personajes con su skin, equipo y arma, de frente y de lado.
+     Uso: /charview.html?skins=a,b&helmet=id&vest=id&pack=id&weapon=id  (o &helmets=a,b,c para probar varios cascos en una skin) -->
+<script type="module">
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { buildCharacter, loadSkin } from "/src/skins.ts";
+import { weaponObject } from "/src/weaponmodels.ts";
+const q = new URLSearchParams(location.search);
+const list = (k) => (q.get(k) || "").split(",").filter(Boolean);
+const skins = list("skins");
+// combinaciones: cada skin con el equipo fijo, o una skin con cada pieza de la lista
+const combos = [];
+for (const s of skins) {
+  const multi = ["helmets", "vests", "packs"].find((k) => list(k).length);
+  if (multi) for (const id of list(multi)) combos.push({ skin: s, helmet: multi === "helmets" ? id : q.get("helmet") || "", vest: multi === "vests" ? id : q.get("vest") || "", pack: multi === "packs" ? id : q.get("pack") || "", label: id });
+  else combos.push({ skin: s, helmet: q.get("helmet") || "", vest: q.get("vest") || "", pack: q.get("pack") || "", label: s });
+}
+const W = 230, H = 330, cols = Math.min(combos.length, +(q.get("cols") || 8)) || 1;
+const out = document.getElementById("out"); out.width = W * 2 * cols; out.height = H * Math.ceil(combos.length / cols);
+const ctx = out.getContext("2d");
+const c = document.createElement("canvas"); c.width = W; c.height = H;
+const r = new THREE.WebGLRenderer({ canvas: c, antialias: true, preserveDrawingBuffer: true });
+r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
+const env = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+const t = +(q.get("t") || 0), speed = +(q.get("speed") || 0);
+for (let i = 0; i < combos.length; i++) {
+  const k = combos[i];
+  const s = new THREE.Scene(); s.background = new THREE.Color(0x3a4658); s.environment = env;
+  s.add(new THREE.DirectionalLight(0xffffff, 2.2));
+  await loadSkin(k.skin);
+  const ch = buildCharacter(k.skin);
+  if (ch) {
+    await ch.setGear(k);
+    if (q.get("weapon")) {
+      const w = await weaponObject(q.get("weapon"));
+      if (w) { const h = new THREE.Group(); h.position.set(0.15, 1.08, -0.15); const len = new THREE.Box3().setFromObject(w).getSize(new THREE.Vector3()).z; w.position.z -= len * 0.3; h.add(w); ch.body.add(h); }
+    }
+    for (let j = 0; j < 20; j++) ch.update(t / 20, speed, false);
+    s.add(ch.body);
+  }
+  const x = (i % cols) * W * 2, y = Math.floor(i / cols) * H;
+  // el personaje mira hacia -Z: de frente = cámara en -Z; de lado = cámara en +X (su derecha)
+  for (const [vi, pos] of [[0, [0, 1.0, -3.2]], [1, [3.2, 1.0, 0]]]) {
+    const cam = new THREE.PerspectiveCamera(36, W / H, 0.1, 50);
+    cam.position.set(...pos); cam.lookAt(0, 0.95, 0);
+    r.render(s, cam);
+    ctx.drawImage(c, x + vi * W, y);
+  }
+  ctx.fillStyle = "#ffd"; ctx.font = "13px sans-serif"; ctx.fillText(k.label, x + 5, y + 14);
+}
+window.__done = true;
+</script></body></html>

@@ -18,6 +18,7 @@ import { ArmsViewModel } from "./fparms";
 import { softSprite } from "./textures";
 import { Tracers } from "./tracers";
 import type { WeaponFx } from "./fx";
+import type { Look } from "../../shared/src/gear";
 import { weaponModel } from "../../shared/src/weapons";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -597,10 +598,10 @@ export class World {
 
   // ---------- Jugadores ----------
 
-  upsertAvatar(id: number, name: string): Avatar {
+  upsertAvatar(id: number, name: string, look?: Look): Avatar {
     let a = this.avatars.get(id);
     if (!a) {
-      a = new Avatar(id, name);
+      a = new Avatar(id, name, look);
       this.avatars.set(id, a);
       this.scene.add(a.group);
     } else {
