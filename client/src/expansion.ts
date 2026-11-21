@@ -2,6 +2,7 @@
 // modular de Poly Haven, contenedores, autos, barreras, galpones, grúa, torres de luz y el hangar.
 // Los objetos repetidos se dibujan con InstancedMesh (una llamada de dibujo por pieza distinta).
 import * as THREE from "three";
+import { ktx2Loader } from "./ktx";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -12,6 +13,7 @@ type Quality = "low" | "medium" | "high";
 
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
+loader.setKTX2Loader(ktx2Loader);
 const kitCache = new Map<string, Promise<THREE.Object3D | null>>();
 
 function kit(name: string, dir = "kit"): Promise<THREE.Object3D | null> {
@@ -60,13 +62,90 @@ class Instancer {
       im.name = s.key;
       s.mats.forEach((m, i) => im.setMatrixAt(i, m));
       im.instanceMatrix.needsUpdate = true;
-      im.castShadow = this.shadows;
+      // Los objetos chicos no proyectan sombra: cada uno costaría otra llamada de dibujo en la
+      // pasada de sombras y su sombra casi no se nota. Sí la reciben.
+      im.castShadow = this.shadows && !SMALL.test(s.key);
       im.receiveShadow = this.shadows;
       im.computeBoundingSphere();
       group.add(im);
     }
   }
 }
+
+/**
+ * Nivel de detalle de los contenedores (skill threejs-performance: "Drop detail with distance").
+ * El modelo detallado (~5.300 triángulos, con bisagras y cerrojos) solo se dibuja cerca de la cámara;
+ * a lo lejos cada contenedor es una caja con la textura de chapa de su mismo color (12 triángulos).
+ * Cada color es un InstancedMesh detallado y otro simple; cada cuadro se reparten las instancias.
+ */
+class ContainerLOD {
+  private items: { v: number; near: THREE.Matrix4; far: THREE.Matrix4; pos: THREE.Vector3 }[] = [];
+  private sets: { near: THREE.InstancedMesh[]; far: THREE.InstancedMesh; items: number[] }[] = [];
+  private lastCam = new THREE.Vector3(Infinity, 0, 0);
+  /** Distancia (m) hasta la que se ve el modelo detallado. */
+  static NEAR = 30;
+
+  add(p: Piece, near: THREE.Matrix4) {
+    const w = p.rot % 2 ? p.d : p.w, d = p.rot % 2 ? p.w : p.d;
+    const far = new THREE.Matrix4().makeTranslation(p.x, p.y + p.h / 2, p.z).multiply(new THREE.Matrix4().makeScale(w, p.h, d));
+    this.items.push({ v: p.v, near, far, pos: new THREE.Vector3(p.x, p.y + p.h / 2, p.z) });
+  }
+
+  build(tpl: THREE.Object3D | null, group: THREE.Group, shadows: boolean, tinted: (tint: number) => (m: THREE.Material) => THREE.Material) {
+    if (!this.items.length) return;
+    const byVariant = new Map<number, number[]>();
+    this.items.forEach((it, i) => { const l = byVariant.get(it.v) ?? []; l.push(i); byVariant.set(it.v, l); });
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    for (const [v, idx] of byVariant) {
+      const tint = CONTAINER_TINTS[v % CONTAINER_TINTS.length];
+      const near: THREE.InstancedMesh[] = [];
+      if (tpl) {
+        tpl.updateMatrixWorld(true);
+        const inv = new THREE.Matrix4().copy(tpl.matrixWorld).invert();
+        tpl.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          const im = new THREE.InstancedMesh(m.geometry, (Array.isArray(m.material) ? m.material.map(tinted(tint)) : tinted(tint)(m.material)), idx.length);
+          im.userData.local = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
+          im.castShadow = im.receiveShadow = shadows;
+          im.name = `container${v}`;
+          near.push(im); group.add(im);
+        });
+      }
+      const mat = photoMaterial("corrugated_iron", 0.42, { tint, metalness: 0.5 });
+      mat.color.multiplyScalar(1.15);
+      const far = new THREE.InstancedMesh(box, mat, idx.length);
+      far.castShadow = far.receiveShadow = shadows;
+      far.name = `container${v}-lejos`;
+      group.add(far);
+      this.sets.push({ near, far, items: idx });
+    }
+    this.update(new THREE.Vector3(0, 0, 0), true);
+  }
+
+  private tmp = new THREE.Matrix4();
+  update(cam: THREE.Vector3, force = false) {
+    // solo se recalcula si la cámara se movió más de 1 m
+    if (!force && cam.distanceToSquared(this.lastCam) < 1) return;
+    this.lastCam.copy(cam);
+    const n2 = ContainerLOD.NEAR * ContainerLOD.NEAR;
+    for (const s of this.sets) {
+      let nn = 0, nf = 0;
+      for (const i of s.items) {
+        const it = this.items[i];
+        if (it.pos.distanceToSquared(cam) < n2) {
+          for (const im of s.near) im.setMatrixAt(nn, this.tmp.multiplyMatrices(it.near, im.userData.local));
+          nn++;
+        } else s.far.setMatrixAt(nf++, it.far);
+      }
+      for (const im of s.near) { im.count = nn; im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); }
+      s.far.count = nf; s.far.instanceMatrix.needsUpdate = true; s.far.computeBoundingSphere();
+    }
+  }
+}
+
+/** Piezas que no proyectan sombra (ver Instancer.build). */
+const SMALL = /^(crate|milcrate|plasticbin|drum|tyre|trash\d|seclight|aircon|tube|scicrate2?|shutter\d)$|^fac\|(window_|door_)/;
 
 /** Matriz que encaja la caja de la plantilla dentro de la caja de la pieza. */
 function fitMatrix(tplBox: THREE.Box3, p: Piece, opts: { uniform?: boolean; rotY?: number } = {}): THREE.Matrix4 {
@@ -149,7 +228,8 @@ export interface ExpansionVisuals {
   /** Materiales que brillan (focos): se ajusta su intensidad según la hora. */
   glows: THREE.MeshStandardMaterial[];
   /** Campo de fuerza animado del hangar. */
-  update(time: number): void;
+  /** `cam`: posición de la cámara (para elegir el nivel de detalle de los contenedores). */
+  update(time: number, cam?: THREE.Vector3): void;
 }
 
 export async function buildExpansion(e: Expansion, quality: Quality, opts: { indoor: boolean }): Promise<ExpansionVisuals> {
@@ -159,6 +239,7 @@ export async function buildExpansion(e: Expansion, quality: Quality, opts: { ind
   const inst = new Instancer(shadows);
   const glows: THREE.MeshStandardMaterial[] = [];
   const updaters: ((t: number) => void)[] = [];
+  const lod = new ContainerLOD();
 
   // ---------- Suelos ----------
   const asphalt = photoMaterial("asphalt_02", 5);
@@ -253,7 +334,7 @@ export async function buildExpansion(e: Expansion, quality: Quality, opts: { ind
         if (!t) { group.add(boxMesh(p.rot % 2 ? p.d : p.w, p.h, p.rot % 2 ? p.w : p.d, corrugated[0], p.x, p.y, p.z, shadows)); break; }
         // el modelo trae una hoja abierta en el extremo +X (queda en -Z de la pieza): se encaja solo el cuerpo
         const b = containerBody ??= bodyBox(t);
-        inst.add(t, fitMatrix(b, p, { rotY: Math.PI / 2 }), `container${p.v}`, tinted(CONTAINER_TINTS[p.v % CONTAINER_TINTS.length]));
+        lod.add(p, fitMatrix(b, p, { rotY: Math.PI / 2 }));
         break;
       }
       case "stepbox": {
@@ -482,7 +563,8 @@ export async function buildExpansion(e: Expansion, quality: Quality, opts: { ind
   }
 
   inst.build(group);
-  return { group, glows, update: (t) => { for (const u of updaters) u(t); } };
+  lod.build(tpl.get("container") ?? null, group, shadows, tinted);
+  return { group, glows, update: (t, cam) => { for (const u of updaters) u(t); if (cam) lod.update(cam); } };
 }
 
 // ---------- Fachadas de ladrillo con el kit modular ----------

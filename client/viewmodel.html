@@ -22,6 +22,7 @@ out.width = W * cols; out.height = H * Math.ceil(list.length / cols);
 const ctx = out.getContext("2d");
 const canvas = document.createElement("canvas"); canvas.width = W; canvas.height = H;
 const r = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+(await import("/src/ktx.ts")).initKTX2(r);
 r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
 await loadPropModels();
 for (let i = 0; i < list.length; i++) {

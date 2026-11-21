@@ -1,11 +1,13 @@
 // Brazos animados en primera persona (packs de Sketchfab con esqueleto y animaciones).
 import * as THREE from "three";
+import { ktx2Loader } from "./ktx";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import type { WeaponModel } from "../../shared/src/weapons";
 
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
+loader.setKTX2Loader(ktx2Loader);
 
 type Clip = "idle" | "walk" | "run" | "fire" | "reload" | "draw";
 

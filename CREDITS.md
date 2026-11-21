@@ -184,3 +184,9 @@ En `.claude/skills/` hay tres skills de [cloudai-x/threejs-skills](https://githu
 (© 2026 CloudAI-X, licencia MIT; ver `.claude/skills/LICENSE-threejs-skills.txt`): `threejs-performance`,
 `threejs-loaders` y `threejs-shaders`. Son guías para el asistente de programación, no forman parte del juego.
 El archivo `skills-lock.json` fija la versión instalada.
+
+## Compresión de texturas
+
+- Las texturas de modelos y mapas están en formato KTX2 (Basis Universal). El decodificador
+  `client/public/basis/` (basis_transcoder.js/.wasm) proviene de three.js y es de Binomial LLC,
+  licencia Apache 2.0. La compresión se hizo con la herramienta `ktx2-encoder` (no se incluye en el juego).

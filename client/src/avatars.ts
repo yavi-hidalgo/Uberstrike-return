@@ -1,6 +1,7 @@
 // Jugadores remotos: soldados de Sketchfab (CC BY) animados por código encima de su pose de reposo.
 // Si no cargan, se usa el robot animado (CC0, Quaternius).
 import * as THREE from "three";
+import { ktx2Loader } from "./ktx";
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { MAX_HP, PLAYER_HEIGHT } from "../../shared/src/constants";
@@ -29,6 +30,7 @@ export async function loadSoldierModels(list: { url: string; hasGun: boolean }[]
   const { MeshoptDecoder } = await import("three/addons/libs/meshopt_decoder.module.js");
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
+  loader.setKTX2Loader(ktx2Loader);
   await Promise.all(list.map(async ({ url, hasGun }, index) => {
     try {
       const gltf = await loader.loadAsync(url);

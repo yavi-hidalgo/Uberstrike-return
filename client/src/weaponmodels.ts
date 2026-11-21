@@ -1,6 +1,7 @@
 // Carga los modelos de arma. Todos salen con el mismo formato:
 // cañón hacia -Z, arriba +Y, centrados y con su tamaño real (metros).
 import * as THREE from "three";
+import { ktx2Loader } from "./ktx";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { buildKestrel } from "./weapon";
@@ -9,6 +10,7 @@ import { weaponModel } from "../../shared/src/weapons";
 
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
+loader.setKTX2Loader(ktx2Loader);
 const templates = new Map<string, Promise<THREE.Object3D | null>>();
 
 function center(o: THREE.Object3D): THREE.Object3D {

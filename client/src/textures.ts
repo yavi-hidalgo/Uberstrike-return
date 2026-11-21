@@ -259,35 +259,55 @@ export type MaterialName =
   | "metalDark" | "snow" | "flagstone" | "crate";
 
 const cache = new Map<MaterialName, THREE.MeshStandardMaterial>();
-const loader = new THREE.TextureLoader();
-const texCache = new Map<string, THREE.Texture>();
+import { ktx2Loader } from "./ktx";
+
+const texCache = new Map<string, Promise<THREE.CompressedTexture>>();
 
 /** Texturas fotográficas (Poly Haven, CC0): color, relieve y ARM (oclusión, rugosidad, metal). */
-function photo(file: string, kind: "diff" | "nor" | "arm", metersPerTile: number): THREE.Texture {
+// Llegan comprimidas en KTX2 (ver ktx.ts). Se cargan de forma asíncrona y se asignan al material
+// al llegar; `photoTexturesReady()` espera a todas (el mundo lo hace antes de compilar shaders).
+const pendingPhotos: Promise<unknown>[] = [];
+type PhotoSlot = "map" | "normalMap" | "aoMap" | "roughnessMap" | "metalnessMap";
+
+function photo(file: string, kind: "diff" | "nor" | "arm", metersPerTile: number, mat: THREE.MeshStandardMaterial, slots: PhotoSlot[]) {
   const key = `${file}_${kind}_${metersPerTile}`;
-  const hit = texCache.get(key);
-  if (hit) return hit;
-  const t = loader.load(`${import.meta.env.BASE_URL}assets/textures/${file}_${kind}.webp`);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.setScalar(1 / metersPerTile);
-  t.anisotropy = 8;
-  if (kind === "diff") t.colorSpace = THREE.SRGBColorSpace;
-  texCache.set(key, t);
-  return t;
+  let p = texCache.get(key);
+  if (!p) {
+    p = ktx2Loader.loadAsync(`${import.meta.env.BASE_URL}assets/textures/${file}_${kind}.ktx2`).then((t) => {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.setScalar(1 / metersPerTile);
+      t.anisotropy = 8;
+      t.colorSpace = kind === "diff" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      t.needsUpdate = true;
+      return t;
+    });
+    texCache.set(key, p);
+    pendingPhotos.push(p.catch((e) => console.warn(`Sin textura ${key}`, e)));
+  }
+  void p.then((t) => {
+    for (const slot of slots) (mat as unknown as Record<PhotoSlot, THREE.Texture>)[slot] = t;
+    mat.needsUpdate = true;
+  }).catch(() => {});
+}
+
+/** Espera a que lleguen todas las texturas fotográficas pedidas hasta ahora. */
+export async function photoTexturesReady() {
+  for (;;) {
+    const n = pendingPhotos.length;
+    await Promise.all(pendingPhotos);
+    if (pendingPhotos.length === n) return;
+  }
 }
 
 export function photoMaterial(file: string, meters: number, opts: { tint?: number; metalness?: number; normal?: number } = {}): THREE.MeshStandardMaterial {
-  const arm = photo(file, "arm", meters);
   const m = new THREE.MeshStandardMaterial({
-    map: photo(file, "diff", meters),
-    normalMap: photo(file, "nor", meters),
-    aoMap: arm,
-    roughnessMap: arm,
-    metalnessMap: opts.metalness ? arm : null,
     roughness: 1,
     metalness: opts.metalness ?? 0,
     color: opts.tint ?? 0xffffff,
   });
+  photo(file, "diff", meters, m, ["map"]);
+  photo(file, "nor", meters, m, ["normalMap"]);
+  photo(file, "arm", meters, m, opts.metalness ? ["aoMap", "roughnessMap", "metalnessMap"] : ["aoMap", "roughnessMap"]);
   const n = opts.normal ?? 1;
   m.normalScale.set(n, n);
   return m;

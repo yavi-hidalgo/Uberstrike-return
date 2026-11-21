@@ -10,6 +10,7 @@ import { MAX_HP } from "../../shared/src/constants";
 import { MAPS, PLAYABLE_MAPS } from "../../shared/src/maps";
 import { buildCharacter, loadGearModel, loadSkin, type Character } from "./skins";
 import { weaponObject } from "./weaponmodels";
+import { initKTX2 } from "./ktx";
 
 export interface Settings { sens: number; volume: number; music: number }
 export interface MenuState { name: string; loadout: Loadout; look: Look; settings: Settings }
@@ -89,6 +90,7 @@ class Preview {
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    initKTX2(this.renderer);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -236,6 +238,7 @@ class Thumbs {
       const c = document.createElement("canvas");
       c.width = 240; c.height = 150;
       this.renderer = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: true, preserveDrawingBuffer: true });
+      initKTX2(this.renderer);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       const pm = new THREE.PMREMGenerator(this.renderer);

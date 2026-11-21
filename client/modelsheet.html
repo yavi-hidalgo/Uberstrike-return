@@ -16,6 +16,7 @@ const out = document.getElementById("out"); out.width = W * cols; out.height = H
 const ctx = out.getContext("2d");
 const c = document.createElement("canvas"); c.width = W; c.height = H;
 const r = new THREE.WebGLRenderer({ canvas: c, antialias: true, preserveDrawingBuffer: true });
+(await import("/src/ktx.ts")).initKTX2(r);
 r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
 const env = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
 const l = new GLTFLoader(); l.setMeshoptDecoder(MeshoptDecoder);

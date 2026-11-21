@@ -5,6 +5,7 @@
 // Todo se calcula en el espacio del modelo (mirando hacia +Z) a partir de la dirección real de cada
 // hueso, por lo que funciona con cualquier esqueleto humanoide sin depender de sus ejes locales.
 import * as THREE from "three";
+import { ktx2Loader } from "./ktx";
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
@@ -13,6 +14,7 @@ import { gearItem, type Look } from "../../shared/src/gear";
 
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
+loader.setKTX2Loader(ktx2Loader);
 
 interface SkinTemplate { gltf: GLTF; scale: number; offset: THREE.Vector3 }
 const skins = new Map<string, Promise<SkinTemplate | null>>();

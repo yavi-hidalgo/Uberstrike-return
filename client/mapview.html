@@ -51,7 +51,11 @@ world.scene.traverse((o) => {
     for (const v of Object.values(m)) if (v && v.isTexture && !texs.has(v)) {
       texs.add(v);
       const img = v.image; const w = img?.width || 0, h = img?.height || 0;
-      texBytes += w * h * 4 * 1.333;
+      // comprimidas en la GPU (BC/ETC/ASTC): ~1 byte por píxel; si la GPU no las soporta se descomprimen a RGBA (4)
+      const bpp = v.isCompressedTexture && v.format !== 1023 ? 1 : 4;
+      texBytes += w * h * bpp * 1.333;
+      inv.compressed = (inv.compressed || 0) + (v.isCompressedTexture ? 1 : 0);
+      if (v.isCompressedTexture) inv.fmt = v.format;
     }
   }
 });

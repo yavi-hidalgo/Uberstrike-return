@@ -1,5 +1,6 @@
 // Escena 3D: entorno, mapa, jugadores, arma, efectos y postprocesado.
 import * as THREE from "three";
+import { initKTX2, ktx2Loader } from "./ktx";
 import {
   BloomEffect, EffectComposer, EffectPass, Pass, RenderPass, SMAAEffect,
   ToneMappingEffect, ToneMappingMode, VignetteEffect, type Effect,
@@ -15,7 +16,7 @@ import { Avatar, loadAvatarModel, loadSoldierModels } from "./avatars";
 import { buildProps, hasModel, loadPropModels } from "./props";
 import { weaponAnchors, weaponObject } from "./weaponmodels";
 import { ArmsViewModel } from "./fparms";
-import { softSprite } from "./textures";
+import { photoTexturesReady, softSprite } from "./textures";
 import { Tracers } from "./tracers";
 import type { WeaponFx } from "./fx";
 import type { Look } from "../../shared/src/gear";
@@ -85,6 +86,7 @@ export class World {
     const dpr = window.devicePixelRatio || 1;
     this.renderer.setPixelRatio(quality === "high" ? Math.min(dpr, 1.5) : 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    initKTX2(this.renderer);
     this.renderer.toneMapping = usePost ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = quality !== "low";
@@ -176,6 +178,7 @@ export class World {
   /** Carga los modelos externos. Hay que esperarla antes de crear jugadores. */
   async load() {
     await this.loadContent();
+    await photoTexturesReady();
     // Compila todos los shaders ahora, durante la pantalla de carga, para que la primera vez
     // que se ve algo (una explosión, el hangar) no haya un tirón.
     try { await this.renderer.compileAsync(this.scene, this.camera); } catch (e) { console.warn("No se pudieron precompilar los shaders", e); }
@@ -233,6 +236,7 @@ export class World {
     const m = this.mapDef.model!;
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.setKTX2Loader(ktx2Loader);
     const g = await loader.loadAsync(`${import.meta.env.BASE_URL}assets/maps/${m.file}`);
     const root = g.scene;
     root.scale.setScalar(m.scale);
@@ -654,7 +658,7 @@ export class World {
   render(dt: number, view: { speed: number; onGround: boolean; lookDX: number; lookDY: number; reloading: boolean; alive: boolean; aiming: boolean; ads?: boolean; sprinting?: boolean; reloadSeconds?: number }) {
     this.time += dt;
     this.env.update(dt, this.time, this.camera.position);
-    this.expansion?.update(this.time);
+    this.expansion?.update(this.time, this.camera.position);
     if (this.shadowHalf > 0) {
       // la caja de sombra sigue a la cámara, alineada a la grilla de píxeles de la sombra (sin parpadeo)
       const texel = (this.shadowHalf * 2) / this.sun.shadow.mapSize.x;

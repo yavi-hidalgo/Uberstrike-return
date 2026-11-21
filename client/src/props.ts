@@ -1,5 +1,6 @@
 // Modelos 3D reales (Poly Haven, CC0): objetos del mapa, árboles, rocas, farolas y la pistola.
 import * as THREE from "three";
+import { ktx2Loader } from "./ktx";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { MAP_BOXES, MAP_FEATURES, PROPS, SCENERY, type Prop } from "../../shared/src/map";
@@ -16,6 +17,7 @@ const models = new Map<string, THREE.Object3D>();
 export async function loadPropModels(): Promise<void> {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
+  loader.setKTX2Loader(ktx2Loader);
   await Promise.all(MODEL_FILES.map(async (name) => {
     try {
       const g = await loader.loadAsync(`${import.meta.env.BASE_URL}assets/models/${name}.glb`);
