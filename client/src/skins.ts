@@ -174,11 +174,13 @@ export function buildCharacter(skinId: string): Character | null {
     if (!thigh) return null;
     return {
       thigh, calf,
-      thighRest: wq(thigh), thighParent: wq(thigh.parent!),
+      thighRest: wq(thigh), thighParentInv: wq(thigh.parent!).invert(),
       calfRest: calf ? wq(calf) : null,
     };
   });
   const X = new THREE.Vector3(1, 0, 0);
+  // reutilizados en cada cuadro (sin crear basura para el recolector)
+  const qA = new THREE.Quaternion(), qB = new THREE.Quaternion(), qC = new THREE.Quaternion();
   let stride = Math.random() * 2;
   const update = (dt: number, speed: number, airborne: boolean) => {
     const sp = Math.min(speed, 9);
@@ -191,12 +193,12 @@ export function buildCharacter(skinId: string): Character | null {
       const tuck = airborne ? (i === 0 ? 0.5 : 0.3) : 0;
       // ángulo positivo alrededor de X lleva la pierna hacia atrás; negativo, hacia delante
       const a = -(s * sg * amp + tuck);
-      const thighW = new THREE.Quaternion().setFromAxisAngle(X, a).multiply(leg.thighRest);
-      leg.thigh.quaternion.copy(leg.thighParent.clone().invert().multiply(thighW));
+      const thighW = qA.setFromAxisAngle(X, a).multiply(leg.thighRest);
+      leg.thigh.quaternion.copy(leg.thighParentInv).multiply(thighW);
       if (leg.calf && leg.calfRest) {
         const bend = Math.max(0, s * sg) * amp * 1.5 + tuck * 1.6;
-        const calfW = new THREE.Quaternion().setFromAxisAngle(X, a + bend).multiply(leg.calfRest);
-        leg.calf.quaternion.copy(thighW.clone().invert().multiply(calfW));
+        const calfW = qB.setFromAxisAngle(X, a + bend).multiply(leg.calfRest);
+        leg.calf.quaternion.copy(qC.copy(thighW).invert()).multiply(calfW);
       }
     });
     inner.position.y = -Math.abs(Math.cos(stride * Math.PI)) * amp * 0.05;

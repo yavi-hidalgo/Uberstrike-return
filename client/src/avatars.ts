@@ -78,6 +78,10 @@ function makeTag(name: string, hp: number): THREE.CanvasTexture {
   return t;
 }
 
+// Reutilizados en cada cuadro por la animación de piernas
+const AXIS_X = new THREE.Vector3(1, 0, 0);
+const LEG_Q = new THREE.Quaternion();
+
 type Anim = "Idle" | "Walking" | "Running" | "Jump" | "Death";
 
 export class Avatar {
@@ -266,8 +270,7 @@ export class Avatar {
     this.stride += dt * (2 + sp * 1.1);
     const amp = airborne ? 0 : Math.min(0.6, sp * 0.08);
     const s = Math.sin(this.stride * Math.PI);
-    const X = new THREE.Vector3(1, 0, 0);
-    const rot = (b: THREE.Bone | null, a: number) => { if (b && a) b.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(X, a)); };
+    const rot = (b: THREE.Bone | null, a: number) => { if (b && a) b.quaternion.multiply(LEG_Q.setFromAxisAngle(AXIS_X, a)); };
     const tuck = airborne ? 0.5 : 0;
     rot(this.legs.thighL, s * amp + tuck);
     rot(this.legs.thighR, -s * amp + tuck * 0.6);
@@ -301,6 +304,12 @@ export class Avatar {
       else this.play("Idle");
     }
     this.mixer?.update(dt);
+  }
+
+  /** Libera lo propio de este jugador (la textura del nombre). Modelos y materiales se comparten. */
+  dispose() {
+    this.tag.material.map?.dispose();
+    this.tag.material.dispose();
   }
 
   revive() {

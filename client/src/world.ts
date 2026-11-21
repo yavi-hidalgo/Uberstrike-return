@@ -175,6 +175,13 @@ export class World {
 
   /** Carga los modelos externos. Hay que esperarla antes de crear jugadores. */
   async load() {
+    await this.loadContent();
+    // Compila todos los shaders ahora, durante la pantalla de carga, para que la primera vez
+    // que se ve algo (una explosión, el hangar) no haya un tirón.
+    try { await this.renderer.compileAsync(this.scene, this.camera); } catch (e) { console.warn("No se pudieron precompilar los shaders", e); }
+  }
+
+  private async loadContent() {
     const base = import.meta.env.BASE_URL;
     await Promise.all([
       loadAvatarModel(`${base}assets/models/robot.glb`).catch((e) => console.warn("Sin modelo de jugador; se usan cápsulas.", e)),
@@ -255,6 +262,7 @@ export class World {
         }
       }
     });
+    root.name = "mapa";
     this.scene.add(root);
     this.addMapLights();
   }
@@ -354,6 +362,8 @@ export class World {
           float d = max(dot(vN, uSun), 0.0);
           float rim = pow(1.0 - abs(dot(vN, vec3(-1.0, 0.0, 0.0))), 3.0);
           gl_FragColor = vec4(col * (0.04 + d * 1.6) + vec3(0.3, 0.55, 1.0) * rim * (0.2 + d), 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }`,
     });
     const planet = new THREE.Mesh(new THREE.SphereGeometry(260, 64, 32), mat);
@@ -546,19 +556,22 @@ export class World {
     this.boomT = 0.22;
   }
 
+  private tmpV = new THREE.Vector3();
+  private tmpLook = new THREE.Vector3();
+
   private updateProjectiles(dt: number) {
     let lit = false;
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       p.vy -= p.gravity * dt;
-      const v = p.dir.clone().multiplyScalar(p.speed); v.y += p.vy;
+      const v = this.tmpV.copy(p.dir).multiplyScalar(p.speed); v.y += p.vy;
       const step = v.length() * dt;
       p.left -= step;
       if (p.left <= -p.speed * 0.6) { this.removeProjectile(p.id, false); continue; } // el servidor no avisó: se descarta
       if (p.left <= 0) { p.mesh.visible = false; continue; }
       p.pos.addScaledVector(v, dt);
       p.mesh.position.copy(p.pos);
-      p.mesh.lookAt(p.pos.clone().add(v));
+      p.mesh.lookAt(this.tmpLook.copy(p.pos).add(v));
       p.trailT -= dt;
       if (p.trailT <= 0) { this.effects.trail(p.pos, { energy: p.fx.energy || p.fx.cannon === "plasma", color: p.fx.color }); p.trailT = 0.03; }
       if (!lit) { this.projLight.position.copy(p.pos); this.projLight.color.set(p.fx.energy || p.fx.cannon === "plasma" ? p.fx.color : 0xffb060); this.projLight.intensity = 30; lit = true; }
@@ -618,6 +631,7 @@ export class World {
     const a = this.avatars.get(id);
     if (!a) return;
     this.scene.remove(a.group);
+    a.dispose();
     this.avatars.delete(id);
   }
 

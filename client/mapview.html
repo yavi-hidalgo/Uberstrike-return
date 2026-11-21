@@ -19,6 +19,62 @@ for (let i = 0; i < 3; i++) world.render(0.016, view);
 // esperar a que lleguen las texturas (se cargan en segundo plano)
 await new Promise((r) => setTimeout(r, 6000));
 for (let i = 0; i < 3; i++) world.render(0.016, { speed: 0, onGround: true, lookDX: 0, lookDY: 0, reloading: false, alive: false, aiming: false });
+// Medición (skill threejs-performance): contadores acumulados en todo el cuadro, porque el
+// postprocesado hace varios render() por cuadro.
+const r = world.renderer;
+r.info.autoReset = false;
+r.info.reset();
+const t0 = performance.now();
+const N = 5;
+for (let i = 0; i < N; i++) world.render(0.016, view);
+const cpu = (performance.now() - t0) / N;
+const calls = r.info.render.calls / N, tris = r.info.render.triangles / N;
+r.info.reset();
+// Inventario de la escena
+const inv = { objects: 0, meshes: 0, instanced: 0, instances: 0, skinned: 0, noCull: 0, casters: 0, transparentDouble: 0, lights: 0, shadowLights: 0, sprites: 0 };
+const geos = new Set(), mats = new Set(), texs = new Set();
+let texBytes = 0;
+world.scene.traverse((o) => {
+  inv.objects++;
+  if (o.isLight) { inv.lights++; if (o.castShadow) inv.shadowLights++; }
+  if (o.isSprite) inv.sprites++;
+  if (!o.isMesh) return;
+  inv.meshes++;
+  if (o.isInstancedMesh) { inv.instanced++; inv.instances += o.count; }
+  if (o.isSkinnedMesh) inv.skinned++;
+  if (o.frustumCulled === false) inv.noCull++;
+  if (o.castShadow) inv.casters++;
+  geos.add(o.geometry);
+  for (const m of [o.material].flat()) {
+    mats.add(m);
+    if (m.transparent && m.side === 2) inv.transparentDouble++;
+    for (const v of Object.values(m)) if (v && v.isTexture && !texs.has(v)) {
+      texs.add(v);
+      const img = v.image; const w = img?.width || 0, h = img?.height || 0;
+      texBytes += w * h * 4 * 1.333;
+    }
+  }
+});
+// Triángulos por grupo de objetos (para encontrar a los culpables)
+const byKey = new Map();
+const tri = (g) => (g.index ? g.index.count : g.attributes.position.count) / 3;
+world.scene.traverse((o) => {
+  if (!o.isMesh) return;
+  const n = tri(o.geometry) * (o.isInstancedMesh ? o.count : 1);
+  // grupo: nombre del ancestro "con nombre" más cercano, o el del propio objeto
+  let k = o.name || "", p = o.parent; while (!k && p) { k = p.name; p = p.parent; }
+  k = (o.isInstancedMesh ? "inst:" : "") + (k || o.geometry.type);
+  const e = byKey.get(k) || { tris: 0, meshes: 0, cast: 0 };
+  e.tris += n; e.meshes++; if (o.castShadow) e.cast += n;
+  byKey.set(k, e);
+});
+window.__top = [...byKey.entries()].sort((a, b) => b[1].tris - a[1].tris).slice(0, 25).map(([k, e]) => `${Math.round(e.tris / 1000)}k tris (${Math.round(e.cast / 1000)}k con sombra) · ${e.meshes} mallas · ${k.slice(0, 50)}`);
+window.__stats = {
+  drawCallsPerFrame: Math.round(calls), trianglesPerFrame: Math.round(tris), cpuMsPerFrame: +cpu.toFixed(1),
+  geometriesGPU: r.info.memory.geometries, texturesGPU: r.info.memory.textures, programs: r.info.programs.length,
+  pixelRatio: r.getPixelRatio(), shadowMap: r.shadowMap.enabled ? r.shadowMap.type : "off",
+  ...inv, uniqueGeometries: geos.size, uniqueMaterials: mats.size, uniqueTextures: texs.size, textureMB: Math.round(texBytes / 1e6),
+};
 window.__done = true;
 </script>
 </body>

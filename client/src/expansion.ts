@@ -32,7 +32,7 @@ function kit(name: string, dir = "kit"): Promise<THREE.Object3D | null> {
  * ubicaciones donde aparece. La matriz de cada instancia = ubicación · matriz de la malla en la plantilla.
  */
 class Instancer {
-  private sets = new Map<string, { mesh: THREE.Mesh; local: THREE.Matrix4; mats: THREE.Matrix4[]; material: THREE.Material | THREE.Material[] }>();
+  private sets = new Map<string, { key: string; mesh: THREE.Mesh; local: THREE.Matrix4; mats: THREE.Matrix4[]; material: THREE.Material | THREE.Material[] }>();
 
   constructor(private shadows: boolean) {}
 
@@ -47,7 +47,7 @@ class Instancer {
       if (!set) {
         const local = new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld);
         const mat = material ? (Array.isArray(mesh.material) ? mesh.material.map(material) : material(mesh.material)) : mesh.material;
-        set = { mesh, local, mats: [], material: mat };
+        set = { key, mesh, local, mats: [], material: mat };
         this.sets.set(id, set);
       }
       set.mats.push(new THREE.Matrix4().multiplyMatrices(where, set.local));
@@ -57,6 +57,7 @@ class Instancer {
   build(group: THREE.Group) {
     for (const s of this.sets.values()) {
       const im = new THREE.InstancedMesh(s.mesh.geometry, s.material, s.mats.length);
+      im.name = s.key;
       s.mats.forEach((m, i) => im.setMatrixAt(i, m));
       im.instanceMatrix.needsUpdate = true;
       im.castShadow = this.shadows;
@@ -682,6 +683,8 @@ function buildHangarPiece(p: Piece, group: THREE.Group, shadows: boolean, glows:
             float edge = smoothstep(0.08, 0.0, min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y)));
             float a = 0.035 + 0.03 * scan + 0.04 * smoothstep(0.92, 1.0, hex) + edge * 0.5;
             gl_FragColor = vec4(vec3(0.35, 0.65, 1.0) * a, 1.0);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
           }`,
       });
       const g = new THREE.PlaneGeometry(d, p.h);
