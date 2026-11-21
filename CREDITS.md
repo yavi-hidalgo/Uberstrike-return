@@ -177,3 +177,10 @@ Cielo HDRI: industrial_sunset_02_puresky.
 | Mochila militar | Mochila | Neslihan Çakmak | [sketchfab](https://sketchfab.com/3d-models/none-06be5c0f15aa4aa3af8ebcc4c83d02a3) |
 
 Se modificaron: texturas comprimidas a WebP, geometría reducida en los modelos pesados, materiales convertidos a metal-rugosidad, pose de combate y paso al caminar añadidos por código, y el equipo escalado y colocado sobre los huesos de cada personaje.
+
+## Skills de Claude Code (licencia MIT)
+
+En `.claude/skills/` hay tres skills de [cloudai-x/threejs-skills](https://github.com/cloudai-x/threejs-skills)
+(© 2026 CloudAI-X, licencia MIT; ver `.claude/skills/LICENSE-threejs-skills.txt`): `threejs-performance`,
+`threejs-loaders` y `threejs-shaders`. Son guías para el asistente de programación, no forman parte del juego.
+El archivo `skills-lock.json` fija la versión instalada.

@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "skills": {
+    "threejs-loaders": {
+      "source": "cloudai-x/threejs-skills",
+      "commit": "0e181866f095b5f06d005133876e926515390d95",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-loaders/SKILL.md",
+      "computedHash": "9947526431eff5a4e0b3f813ad1c701daf50cbdfeb3c50d116af697e87e8bdbd",
+      "installMode": "copy"
+    },
+    "threejs-performance": {
+      "source": "cloudai-x/threejs-skills",
+      "commit": "0e181866f095b5f06d005133876e926515390d95",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-performance/SKILL.md",
+      "computedHash": "edc078cf2cb729eb4a808ee3c202f4bdbda40a0beb6e34f2cf7b1f5003f11783",
+      "installMode": "copy"
+    },
+    "threejs-shaders": {
+      "source": "cloudai-x/threejs-skills",
+      "commit": "0e181866f095b5f06d005133876e926515390d95",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-shaders/SKILL.md",
+      "computedHash": "4ba49c86b4233fb1fb4321509fd7baefaf05fa139c6ce6090a8ef5096616f38d",
+      "installMode": "copy"
+    }
+  }
+}
