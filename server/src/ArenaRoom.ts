@@ -8,6 +8,7 @@ import {
 import { mapById, type MapDef } from "../../shared/src/maps";
 import { BLOOM_RECOVERY, damageFalloff, effectiveSpread, validLoadout, weaponStats, type Loadout, type WeaponStats } from "../../shared/src/weapons";
 import { gearHp, validLook, type Look } from "../../shared/src/gear";
+import { BOT_NAMES, BotBrain, MAX_BOTS, randomBotPrimary } from "./bots";
 import {
   aimDirection, hitboxes, lineOfSight, rayBox, rayMap, stepMove,
   type InputCmd, type MoveState,
@@ -59,6 +60,8 @@ class Player {
   strikes = 0;
 
   rttMs = 100;
+  /** Cerebro del bot (null en jugadores de verdad). */
+  bot: BotBrain | null = null;
   /** id de jugador -> última vez (ms) que este jugador lo vio */
   lastSeen = new Map<number, number>();
   history: PastPos[] = [];
@@ -100,6 +103,11 @@ function wrapAngle(a: number): number {
   return a;
 }
 
+/** "Cliente" de un bot: no tiene conexión, así que lo que se le envía se descarta. */
+function botClient(sessionId: string): Client {
+  return { sessionId, send() {}, leave() {} } as unknown as Client;
+}
+
 export class ArenaRoom extends Room {
   maxClients = MAX_PLAYERS;
 
@@ -111,6 +119,8 @@ export class ArenaRoom extends Room {
   /** id del botiquín -> momento (ms) en que vuelve a aparecer; 0 = disponible */
   private map: MapDef = mapById(undefined);
   private pickupRespawn = new Map<number, number>();
+  /** Cuántos bots quiere la sala (lo elige en el menú la última persona que entró). */
+  private botTarget = 0;
 
   onCreate(options: { map?: unknown } = {}) {
     this.map = mapById(options?.map);
@@ -149,7 +159,7 @@ export class ArenaRoom extends Room {
     }, 1000);
   }
 
-  onJoin(client: Client, options: { name?: unknown; primary?: unknown; secondary?: unknown; melee?: unknown; skin?: unknown; helmet?: unknown; vest?: unknown; pack?: unknown } = {}) {
+  onJoin(client: Client, options: { name?: unknown; primary?: unknown; secondary?: unknown; melee?: unknown; skin?: unknown; helmet?: unknown; vest?: unknown; pack?: unknown; bots?: unknown } = {}) {
     const id = this.nextId++;
     const name = sanitizeName(options?.name, `Jugador${id}`);
     const p = new Player(id, client, name, validLoadout(options?.primary, options?.secondary, options?.melee), validLook(options));
@@ -157,12 +167,37 @@ export class ArenaRoom extends Room {
     this.respawn(p);
     client.send("welcome", { id, tickRate: TICK_RATE, map: this.map.id } satisfies WelcomeMsg);
     client.send("pickups", this.pickupsMsg());
+    if (isFiniteNumber(options?.bots)) this.botTarget = Math.max(0, Math.min(MAX_BOTS, Math.round(options.bots)));
+    this.syncBots();
     this.sendRoster();
   }
 
   onLeave(client: Client) {
     this.players.delete(client.sessionId);
+    this.syncBots();
     this.sendRoster();
+  }
+
+  // ---------- Bots ----------
+
+  /** Ajusta los bots: tantos como pidió la sala mientras haya alguna persona jugando, y ninguno si no. */
+  private syncBots() {
+    const all = [...this.players.entries()];
+    const humans = all.filter(([, p]) => !p.bot).length;
+    const bots = all.filter(([, p]) => p.bot);
+    const want = humans > 0 ? Math.min(this.botTarget, MAX_PLAYERS - humans) : 0;
+    for (let i = bots.length; i < want; i++) {
+      const id = this.nextId++;
+      const used = new Set(bots.map(([, p]) => p.name));
+      const name = `BOT ${BOT_NAMES.find((n) => !used.has(`BOT ${n}`)) ?? id}`;
+      const sid = `bot-${id}`;
+      const p = new Player(id, botClient(sid), name, validLoadout(randomBotPrimary(), undefined, undefined), validLook());
+      p.bot = new BotBrain();
+      this.players.set(sid, p);
+      bots.push([sid, p]);
+      this.respawn(p);
+    }
+    for (const [sid] of bots.slice(want)) this.players.delete(sid);
   }
 
   // ---------- Validación y anti-abuso ----------
@@ -218,6 +253,15 @@ export class ArenaRoom extends Room {
     const now = Date.now();
 
     if (this.intermissionUntil && now >= this.intermissionUntil) this.startRound();
+
+    // Los bots deciden su input de este tick con lo que ven ahora
+    const everyone = [...this.players.values()];
+    for (const p of everyone) {
+      if (!p.bot) continue;
+      p.queue.length = 0;
+      p.queue.push(p.bot.think(p, everyone, this.map.boxes, this.map.spawns, now));
+      p.lastInputAt = now;
+    }
 
     for (const p of this.players.values()) {
       // Cada tick da 1 "crédito" para procesar 1 input. Así, aunque un tramposo
@@ -592,6 +636,7 @@ export class ArenaRoom extends Room {
   private sendSnapshots(now: number) {
     const all = [...this.players.values()];
     for (const r of all) {
+      if (r.bot) continue; // los bots no tienen pantalla: no necesitan snapshot
       const ex = r.move.x, ey = r.move.y + EYE_HEIGHT, ez = r.move.z;
       const others: OtherSnapshot[] = [];
       for (const q of all) {

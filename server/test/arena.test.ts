@@ -398,3 +398,24 @@ test("aspecto: una sola skin y sin equipo; lo que pida el cliente no suma vida",
   assert.equal(a.last!.you.hp, 100);
   await a.room.leave();
 });
+
+test("bots: aparecen al pedirlos, se mueven, disparan y se van cuando no queda nadie", async () => {
+  const a = await join("Probador", undefined, { bots: 3 });
+  const room = serverRoom(a);
+  const bots = () => [...room.players.values()].filter((p: any) => p.bot);
+  assert.equal(bots().length, 3, "tres bots en la sala");
+  const roster = a.events.filter((e) => e.type === "roster").pop();
+  assert.equal(roster?.msg.players.length, 4, "los bots salen en el marcador");
+  // al probador lo dejamos quieto e inmortal para que la prueba no dependa de quién gana
+  const me = serverPlayer(a);
+  const start = bots().map((p: any) => ({ x: p.move.x, z: p.move.z }));
+  for (let i = 0; i < 40; i++) { me.hp = me.maxHp; await sleep(100); }
+  const moved = bots().filter((p: any, i: number) => Math.hypot(p.move.x - start[i].x, p.move.z - start[i].z) > 1).length;
+  assert.ok(moved >= 2, `los bots caminan (se movieron ${moved})`);
+  // con muchos bots, alguien termina disparando (su munición baja o hubo daño)
+  const shots = bots().reduce((n: number, p: any) => n + (p.stats[0].magazine - p.ammo[0]) + p.kills + p.deaths, 0) + a.events.filter((e) => e.type === "damaged" || e.type === "shot").length;
+  assert.ok(shots > 0, "los bots disparan");
+  await a.room.leave();
+  await sleep(150);
+  assert.equal(bots().length, 0, "sin personas no quedan bots");
+});

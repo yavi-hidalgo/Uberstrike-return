@@ -68,11 +68,11 @@ canvas#game { display: block; width: 100vw; height: 100vh; }
 .m-field { display: grid; gap: 6px; }
 .m-field > span { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 3px; }
 .m-field small { color: var(--muted); font-size: 13px; }
-#name, #quality, #map-select {
+#name, #quality, #map-select, #bots-select {
   font: 500 19px var(--font); color: var(--text); background: var(--panel);
   border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; width: 100%;
 }
-#name:focus, #quality:focus, #map-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+#name:focus, #quality:focus, #map-select:focus, #bots-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .m-range { display: grid; grid-template-columns: 1fr 64px; gap: 10px; align-items: center; }
 .m-range input { accent-color: var(--accent); width: 100%; }
 .m-range output { font-variant-numeric: tabular-nums; text-align: right; }

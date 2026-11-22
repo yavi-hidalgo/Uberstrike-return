@@ -79,6 +79,7 @@ Para jugar con alguien de tu misma red Wi-Fi, comparte la dirección "Network" q
 | `Espacio` | saltar |
 | `R` | recargar |
 | `1` / `2` / `3` | arma principal / pistola / arma blanca |
+| Rueda del ratón | arma siguiente (abajo) o anterior (arriba) |
 | Clic derecho | apuntar: más precisión y zoom, pero se camina más lento (los francotiradores usan mira telescópica) |
 | `Tab` | ver el marcador |
 | `Esc` | pausa: ajustes de sensibilidad y volumen, y salir al menú |
@@ -86,6 +87,8 @@ Para jugar con alguien de tu misma red Wi-Fi, comparte la dirección "Network" q
 Los botiquines rojos (+25 a +50 de vida) aparecen sobre el techo del observatorio, en las terrazas y en los extremos norte y sur del mapa.
 
 **Reglas:** todos contra todos, el primero en llegar a 20 bajas gana la ronda. Un disparo a la cabeza hace el doble de daño.
+
+**Bots:** en el menú (Jugar) eliges cuántos rivales controlados por el juego quieres (de 0 a 8). Viven en el servidor y juegan con las mismas reglas que una persona; se van solos cuando no queda nadie en la sala.
 
 ## Estructura del proyecto
 

@@ -13,7 +13,7 @@ import { buildCharacter, loadSkin, type Character } from "./skins";
 import { weaponObject } from "./weaponmodels";
 import { initKTX2 } from "./ktx";
 
-export interface Settings { sens: number; volume: number; music: number }
+export interface Settings { sens: number; volume: number; music: number; bots: number }
 export interface MenuState { name: string; loadout: Loadout; look: Look; settings: Settings }
 
 const store = {
@@ -27,7 +27,7 @@ export function loadState(): MenuState {
     name: store.get("name") ?? "",
     loadout: validLoadout(store.get("primary"), store.get("secondary"), store.get("melee")),
     look: validLook({ skin: store.get("skin"), helmet: store.get("helmet"), vest: store.get("vest"), pack: store.get("pack") }),
-    settings: { sens: num("sens", 1), volume: num("volume", 0.8), music: num("music", 0.5) },
+    settings: { sens: num("sens", 1), volume: num("volume", 0.8), music: num("music", 0.5), bots: num("bots", 3) },
   };
 }
 
@@ -35,7 +35,7 @@ function saveState(s: MenuState) {
   store.set("name", s.name);
   store.set("primary", s.loadout[0]); store.set("secondary", s.loadout[1]); store.set("melee", s.loadout[2]);
   store.set("skin", s.look.skin); store.set("helmet", s.look.helmet); store.set("vest", s.look.vest); store.set("pack", s.look.pack);
-  store.set("sens", String(s.settings.sens)); store.set("volume", String(s.settings.volume)); store.set("music", String(s.settings.music));
+  store.set("sens", String(s.settings.sens)); store.set("volume", String(s.settings.volume)); store.set("music", String(s.settings.music)); store.set("bots", String(s.settings.bots));
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...kids: (Node | string | null)[]) => {
@@ -410,10 +410,14 @@ export function createMenu(root: HTMLElement, opts: MenuOptions) {
         q.append(new Option("Baja: PCs modestos y portátiles", "low"), new Option("Media: sombras y brillo", "medium"), new Option("Alta: sombras suaves y antialiasing", "high"));
         q.value = opts.quality;
         q.addEventListener("change", () => opts.onQuality(q.value));
+        const bots = el("select", { id: "bots-select" });
+        for (const n of [0, 1, 2, 3, 4, 6, 8]) bots.append(new Option(n === 0 ? "Sin bots" : `${n} bot${n > 1 ? "s" : ""}`, String(n)));
+        bots.value = String(state.settings.bots);
+        bots.addEventListener("change", () => { state.settings.bots = parseInt(bots.value, 10); saveState(state); });
         rightBody.append(
           el("div", { class: "m-box m-hp" }, el("span", {}, "VIDA"), el("b", {}, String(MAX_HP))),
           el("h3", {}, "Tu equipo"), loadoutList(),
-          field("Mapa", map), field("Calidad gráfica", q),
+          field("Mapa", map), field("Rivales controlados por el juego", bots), field("Calidad gráfica", q),
         );
       } else {
         const range = (label: string, key: keyof Settings, min: number, max: number, step: number, fmt: (v: number) => string) => {
@@ -431,7 +435,7 @@ export function createMenu(root: HTMLElement, opts: MenuOptions) {
           el("div", { class: "controls" },
             el("div", {}, "W A S D moverse · Shift correr · Espacio saltar"),
             el("div", {}, "Clic disparar · Clic derecho apuntar · R recargar"),
-            el("div", {}, "1 2 3 cambiar de arma · Tab marcador · Esc pausa")),
+            el("div", {}, "1 2 3 o rueda del ratón: cambiar de arma"), el("div", {}, "Tab marcador · Esc pausa")),
           el("p", { class: "m-note" }, "Estos ajustes también están en el menú de pausa (Esc) durante la partida."),
         );
       }

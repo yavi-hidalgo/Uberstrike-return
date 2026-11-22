@@ -48,7 +48,7 @@ export const GEAR: GearItem[] = [
 const SKIN_IDS = new Set(SKINS.map((s) => s.id));
 const GEAR_BY_ID = new Map(GEAR.map((g) => [g.id, g]));
 
-export const DEFAULT_SKIN = "1b2d325edc"; // Astronauta oscura: la única skin del juego
+export const DEFAULT_SKIN = "137d62cd82"; // Astronauta (traje blanco): la única skin del juego
 
 /** Skins anteriores: ya traen su propio casco y chaleco modelados, así que el equipo no se dibuja encima. */
 export const LEGACY_SKINS = ["swat", "operator", "tactical"];

@@ -173,7 +173,7 @@ $("pause-exit").addEventListener("click", () => {
 
 async function connect(name: string) {
   const client = new Client(SERVER_URL);
-  room = await client.joinOrCreate("arena", { name, primary: loadout[0], secondary: loadout[1], melee: loadout[2], ...look, map: mapDef.id });
+  room = await client.joinOrCreate("arena", { name, primary: loadout[0], secondary: loadout[1], melee: loadout[2], ...look, map: mapDef.id, bots: menuState.settings.bots });
 
   room.onMessage("welcome", (m: WelcomeMsg) => {
     myId = m.id;
@@ -204,6 +204,7 @@ async function connect(name: string) {
     toast(`+${m.amount} VIDA`);
   });
   room.onLeave((code) => {
+    if (!leaving) console.warn(`[red] conexión cerrada (código ${code})`);
     room = null;
     snapshotsReceived = 0;
     pending = [];
@@ -424,6 +425,17 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Digit3" || e.code === "Numpad3") pendingWeapon = 2;
   keysDown.add(e.code);
 });
+// Rueda del ratón: abajo pasa a la siguiente arma, arriba a la anterior (1 → 2 → 3 → 1)
+let lastWheel = 0;
+document.addEventListener("wheel", (e) => {
+  if (!room || document.pointerLockElement !== canvas || e.deltaY === 0) return;
+  e.preventDefault();
+  const now = performance.now();
+  if (now - lastWheel < 110) return; // una muesca por cambio, aunque el ratón mande varios eventos
+  lastWheel = now;
+  const from = pendingWeapon >= 0 ? pendingWeapon : me.weapon;
+  pendingWeapon = (from + (e.deltaY > 0 ? 1 : 2)) % 3;
+}, { passive: false });
 window.addEventListener("keyup", (e) => {
   if (e.code === "Tab") $("scoreboard").classList.add("hidden");
   keysDown.delete(e.code);
