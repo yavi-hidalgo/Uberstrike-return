@@ -90,6 +90,19 @@ Los botiquines rojos (+25 a +50 de vida) aparecen sobre el techo del observatori
 
 **Bots:** en el menú (Jugar) eliges cuántos rivales controlados por el juego quieres (de 0 a 8). Viven en el servidor y juegan con las mismas reglas que una persona; se van solos cuando no queda nadie en la sala.
 
+## Compartirlo para que otros lo prueben
+
+Con `npm run dev` todo el juego (página y servidor) sale por un solo puerto, el 5173: el servidor de
+juego se reenvía bajo `/colyseus`.
+
+- **Misma red Wi-Fi:** comparte la dirección "Network" que muestra la consola (por ejemplo
+  `http://192.168.1.20:5173`). Si Windows pregunta por el firewall, permite el acceso en redes privadas.
+- **Por internet (temporal):** con `npm run dev` funcionando, abre otra terminal y ejecuta
+  `cloudflared tunnel --url http://localhost:5173` (instálalo antes con
+  `winget install --id Cloudflare.cloudflared`). Comparte la dirección `https://….trycloudflare.com`
+  que aparece. Funciona mientras tu PC esté encendido y la terminal abierta; ciérrala con `Ctrl+C`
+  al terminar. Comparte ese enlace solo con quien vaya a probar.
+
 ## Estructura del proyecto
 
 ```

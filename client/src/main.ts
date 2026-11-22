@@ -21,10 +21,11 @@ import { validLook, type Look } from "../../shared/src/gear";
 import { createMenu, loadState, type Settings } from "./menu";
 import { music } from "./music";
 
-// Dirección del servidor de juego. En producción se define con VITE_SERVER_URL.
+// Dirección del servidor de juego. En producción se define con VITE_SERVER_URL; si no, se usa la
+// misma dirección de la página bajo /colyseus (Vite la reenvía al servidor del puerto 2567).
 const SERVER_URL: string =
   import.meta.env.VITE_SERVER_URL ??
-  `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:2567`;
+  `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/colyseus`;
 
 const INTERP_DELAY_MS = 100; // igual que CLIENT_INTERP_MS en el servidor
 const MOUSE_SENS = 0.0022;
