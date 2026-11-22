@@ -13,6 +13,18 @@ loader.setMeshoptDecoder(MeshoptDecoder);
 loader.setKTX2Loader(ktx2Loader);
 const templates = new Map<string, Promise<THREE.Object3D | null>>();
 
+/**
+ * Correcciones de orientación de modelos que no vienen con el cañón (o la hoja) hacia -Z.
+ * En las armas blancas, -Z es la punta o la cabeza y +Z el mango.
+ *  - flip: está al revés (giro de 180° alrededor de Y).
+ *  - upright: viene de pie, con la punta hacia +Y (se tumba hacia -Z).
+ */
+const MODEL_FIX: Record<string, { flip?: boolean; upright?: boolean }> = {
+  "75ba882dd7": { flip: true }, // Palanca: el gancho arriba, se sujeta por el extremo recto
+  "0c15905a8d": { flip: true }, // Espada futurista
+  "d0c12e5781": { upright: true }, // Espadón futurista
+};
+
 function center(o: THREE.Object3D): THREE.Object3D {
   const g = new THREE.Group();
   g.add(o);
@@ -48,6 +60,9 @@ async function loadTemplate(id: string): Promise<THREE.Object3D | null> {
   if (arms) return loadTemplate(arms.thirdPerson);
   try {
     const g = await loader.loadAsync(`${import.meta.env.BASE_URL}assets/weapons/${id}.glb`);
+    const fix = MODEL_FIX[id];
+    if (fix?.flip) g.scene.rotation.y += Math.PI;
+    if (fix?.upright) g.scene.rotation.x -= Math.PI / 2;
     return center(g.scene);
   } catch (e) {
     console.warn(`No se pudo cargar el arma ${id}`, e);
