@@ -48,7 +48,7 @@ export const GEAR: GearItem[] = [
 const SKIN_IDS = new Set(SKINS.map((s) => s.id));
 const GEAR_BY_ID = new Map(GEAR.map((g) => [g.id, g]));
 
-export const DEFAULT_SKIN = "e9aa211b67"; // Soldado ruso
+export const DEFAULT_SKIN = "1b2d325edc"; // Astronauta oscura: la única skin del juego
 
 /** Skins anteriores: ya traen su propio casco y chaleco modelados, así que el equipo no se dibuja encima. */
 export const LEGACY_SKINS = ["swat", "operator", "tactical"];
@@ -58,13 +58,9 @@ export interface Look { skin: string; helmet: string; vest: string; pack: string
 
 export function gearItem(id: string): GearItem | undefined { return GEAR_BY_ID.get(id); }
 
-/** Valida el aspecto que pide el cliente; lo inválido se descarta. */
-export function validLook(o: { skin?: unknown; helmet?: unknown; vest?: unknown; pack?: unknown } | undefined): Look {
-  const piece = (v: unknown, slot: GearSlot) => (typeof v === "string" && GEAR_BY_ID.get(v)?.slot === slot ? v : "");
-  return {
-    skin: typeof o?.skin === "string" && SKIN_IDS.has(o.skin) ? o.skin : DEFAULT_SKIN,
-    helmet: piece(o?.helmet, "helmet"), vest: piece(o?.vest, "vest"), pack: piece(o?.pack, "pack"),
-  };
+/** Aspecto de los jugadores: todos usan la misma skin y no hay equipo (el vestuario se quitó). */
+export function validLook(_o?: { skin?: unknown; helmet?: unknown; vest?: unknown; pack?: unknown }): Look {
+  return { skin: DEFAULT_SKIN, helmet: "", vest: "", pack: "" };
 }
 
 /** Vida extra que da el equipo puesto. */

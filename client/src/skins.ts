@@ -97,7 +97,14 @@ export interface Character {
   update(dt: number, speed: number, airborne: boolean): void;
   /** Quita el equipo actual y pone el del aspecto dado. */
   setGear(look: Look): Promise<void>;
+  /**
+   * Pone el arma en las manos: la mano derecha en la empuñadura y la izquierda en el guardamanos
+   * (o junto a la derecha en pistolas y armas blancas). El arma debe venir con el cañón hacia -Z.
+   */
+  holdWeapon(o: THREE.Object3D | null, kind: WeaponHold): void;
 }
+
+export type WeaponHold = "rifle" | "pistol" | "melee";
 
 const find = (root: THREE.Object3D, re: RegExp, not?: RegExp): THREE.Bone | null => {
   let f: THREE.Bone | null = null;
@@ -169,6 +176,66 @@ export function buildCharacter(skinId: string): Character | null {
   aim(upL, foreL, new THREE.Vector3(-0.22, -0.6, 0.77));
   aim(foreL, handL, new THREE.Vector3(-0.5, -0.02, 0.86));
   body.updateMatrixWorld(true);
+
+
+  // ---- Brazos: cinemática inversa de dos huesos (hombro, codo, muñeca) ----
+  const armLen = (up: THREE.Bone | null, fore: THREE.Bone | null, hand: THREE.Bone | null) =>
+    up && fore && hand ? [wp(fore).distanceTo(wp(up)), wp(hand).distanceTo(wp(fore))] : [0, 0];
+  const lenR = armLen(upR, foreR, handR), lenL = armLen(upL, foreL, handL);
+  /** Lleva la muñeca a `target` doblando el codo hacia `pole` (todo en el espacio del modelo). */
+  const reach = (up: THREE.Bone | null, fore: THREE.Bone | null, hand: THREE.Bone | null, [a, b]: number[], target: THREE.Vector3, pole: THREE.Vector3) => {
+    if (!up || !fore || !hand || !a || !b) return;
+    body.updateMatrixWorld(true);
+    const S = wp(up);
+    const toT = target.clone().sub(S);
+    const d = THREE.MathUtils.clamp(toT.length(), Math.abs(a - b) + 1e-3, a + b - 1e-3);
+    const u = toT.normalize();
+    const cosA = THREE.MathUtils.clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1);
+    const perp = pole.clone().addScaledVector(u, -pole.dot(u)).normalize();
+    const elbow = S.clone().addScaledVector(u, a * cosA).addScaledVector(perp, a * Math.sqrt(1 - cosA * cosA));
+    aim(up, fore, elbow.clone().sub(S));
+    aim(fore, hand, S.addScaledVector(u, d).sub(elbow));
+  };
+  const POLE_R = new THREE.Vector3(-0.7, -1, -0.25), POLE_L = new THREE.Vector3(0.7, -1, 0);
+  let held: THREE.Group | null = null;
+  const holdWeapon = (o: THREE.Object3D | null, kind: WeaponHold) => {
+    held?.removeFromParent();
+    held = null;
+    if (!o) return;
+    const box = new THREE.Box3().setFromObject(o), size = box.getSize(new THREE.Vector3());
+    // puntos de agarre en el espacio del arma (cañón hacia -Z)
+    let grip: THREE.Vector3, fore: THREE.Vector3 | null = null, hand: THREE.Vector3, pitch = 0;
+    if (kind === "melee") {
+      grip = new THREE.Vector3(0, (box.min.y + box.max.y) / 2, box.max.z - Math.max(0.05, size.z * 0.08));
+      hand = new THREE.Vector3(-0.16, 1.02, 0.3);
+      pitch = -1.0; // la hoja hacia arriba y adelante
+    } else if (kind === "pistol") {
+      grip = new THREE.Vector3(0, box.min.y + size.y * 0.3, box.min.z + size.z * 0.78);
+      hand = new THREE.Vector3(-0.06, 1.22, 0.44);
+    } else {
+      grip = new THREE.Vector3(0, box.min.y + size.y * 0.28, box.min.z + size.z * 0.66);
+      fore = new THREE.Vector3(0, box.min.y + size.y * 0.45, Math.max(box.min.z + size.z * 0.3, grip.z - 0.42));
+      hand = new THREE.Vector3(-0.12, 1.16, 0.3);
+    }
+    const g = new THREE.Group();
+    g.position.copy(hand);
+    g.rotation.x = pitch;
+    const turn = new THREE.Group();
+    turn.rotation.y = Math.PI; // el cañón pasa de -Z a +Z (el frente del modelo)
+    o.position.sub(grip);
+    o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } });
+    turn.add(o);
+    g.add(turn);
+    inner.add(g);
+    held = g;
+    inner.updateMatrixWorld(true);
+    // muñecas un poco detrás del punto de agarre (la palma queda sobre la empuñadura)
+    reach(upR, foreR, handR, lenR, hand.clone().add(new THREE.Vector3(0, 0.03, -0.07)), POLE_R);
+    const leftAt = fore
+      ? inner.worldToLocal(turn.localToWorld(fore.clone())).add(new THREE.Vector3(0.03, -0.04, -0.05))
+      : hand.clone().add(new THREE.Vector3(0.07, -0.05, -0.06));
+    reach(upL, foreL, handL, lenL, leftAt, POLE_L);
+  };
 
   // ---- Piernas: giro alrededor del eje X del modelo sobre la pose de descanso ----
   const legs = [thighR, thighL].map((thigh, i) => {
@@ -262,5 +329,5 @@ export function buildCharacter(skinId: string): Character | null {
     for (const h of made) if (h) holders.push(h);
   };
 
-  return { body, update, setGear };
+  return { body, update, setGear, holdWeapon };
 }

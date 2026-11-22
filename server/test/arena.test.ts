@@ -389,20 +389,12 @@ test("cañón de cohetes: el proyectil viaja, explota y hace daño en área (tam
   await b.room.leave();
 });
 
-test("equipo: suma vida máxima y lo inválido se descarta", async () => {
-  const { gearHp, validLook, GEAR } = await import("../../shared/src/gear");
-  const helmet = GEAR.find((g) => g.slot === "helmet")!, vest = GEAR.find((g) => g.slot === "vest")!, pack = GEAR.find((g) => g.slot === "pack")!;
-  const a = await join("Blindado", undefined, { skin: "1673131f9e", helmet: helmet.id, vest: vest.id, pack: pack.id });
-  const total = 100 + helmet.hp + vest.hp + pack.hp;
-  assert.equal(serverPlayer(a).maxHp, total);
-  assert.equal(a.last!.you.hp, total);
-  assert.equal(a.last!.you.maxHp, total);
-  // un casco en la ranura del chaleco, o un id inventado, no cuenta
-  const look = validLook({ skin: "no_existe", helmet: vest.id, vest: helmet.id, pack: "x" });
-  assert.deepEqual(look, { skin: "e9aa211b67", helmet: "", vest: "", pack: "" });
-  assert.equal(gearHp(look), 0);
-  const b = await join("Tramposo2", undefined, { vest: "chaleco_de_9999", helmet: vest.id });
-  assert.equal(serverPlayer(b).maxHp, 100);
+test("aspecto: una sola skin y sin equipo; lo que pida el cliente no suma vida", async () => {
+  const { validLook, GEAR, DEFAULT_SKIN } = await import("../../shared/src/gear");
+  const helmet = GEAR.find((g) => g.slot === "helmet")!, vest = GEAR.find((g) => g.slot === "vest")!;
+  assert.deepEqual(validLook({ skin: "no_existe", helmet: helmet.id, vest: vest.id, pack: "x" }), { skin: DEFAULT_SKIN, helmet: "", vest: "", pack: "" });
+  const a = await join("Blindado", undefined, { skin: "e9aa211b67", helmet: helmet.id, vest: vest.id });
+  assert.equal(serverPlayer(a).maxHp, 100);
+  assert.equal(a.last!.you.hp, 100);
   await a.room.leave();
-  await b.room.leave();
 });

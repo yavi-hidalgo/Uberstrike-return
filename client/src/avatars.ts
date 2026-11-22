@@ -6,8 +6,9 @@ import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { MAX_HP, PLAYER_HEIGHT } from "../../shared/src/constants";
 import { softSprite } from "./textures";
-import { LEGACY_SKINS, type Look } from "../../shared/src/gear";
-import { buildCharacter, loadSkin, type Character } from "./skins";
+import { LEGACY_SKINS, validLook, type Look } from "../../shared/src/gear";
+import { weaponModel } from "../../shared/src/weapons";
+import { buildCharacter, loadSkin, type Character, type WeaponHold } from "./skins";
 
 const PLAYER_COLORS = [0xd94b3b, 0x3b7dd9, 0x3fae5a, 0xe0a83a, 0x9a5ad9, 0x2fb8b0, 0xd95aa8, 0xe8e8e8];
 
@@ -108,8 +109,9 @@ export class Avatar {
   /** Skin nueva con esqueleto posado por código (y su equipo). */
   private char: Character | null = null;
 
-  constructor(readonly id: number, name: string, look?: Look) {
+  constructor(readonly id: number, name: string, lookIn?: Look) {
     this.name = name;
+    const look = lookIn ?? validLook();
     const color = new THREE.Color(PLAYER_COLORS[id % PLAYER_COLORS.length]);
     const legacy = look ? LEGACY_SKINS.indexOf(look.skin) : id % 3;
     const soldier = legacy >= 0 ? soldiers[legacy] : undefined;
@@ -117,6 +119,7 @@ export class Avatar {
       // Skin nueva: se carga en segundo plano y aparece al estar lista
       const body = new THREE.Group();
       this.body = body;
+      this.skinned = true;
       this.group.add(body);
       this.weaponHolder.visible = true;
       void loadSkin(look.skin).then(() => {
@@ -125,6 +128,7 @@ export class Avatar {
         this.char = ch;
         body.add(ch.body);
         void ch.setGear(look);
+        if (this.pendingWeapon) { ch.holdWeapon(this.pendingWeapon, this.holdKind()); this.pendingWeapon = null; }
       });
     } else if (soldier) {
       const t = soldier;
@@ -220,7 +224,20 @@ export class Avatar {
     this.current = name;
   }
 
+  private pendingWeapon: THREE.Object3D | null = null;
+  private skinned = false;
+  private holdKind(): WeaponHold {
+    const c = weaponModel(this.weaponId)?.category;
+    return c === "melee" ? "melee" : c === "pistol" ? "pistol" : "rifle";
+  }
+
   setWeaponModel(o: THREE.Object3D) {
+    // la skin nueva sujeta el arma con las manos; si aún no cargó, se pone al estar lista
+    if (this.skinned) {
+      if (this.char) this.char.holdWeapon(o, this.holdKind());
+      else this.pendingWeapon = o;
+      return;
+    }
     this.weaponHolder.clear();
     const len = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()).z;
     o.position.z -= len * 0.3; // la culata cerca del hombro
