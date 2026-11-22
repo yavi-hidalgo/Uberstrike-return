@@ -1,8 +1,8 @@
-# Arena Rush
+# Neonstrike
 
 Shooter arena multijugador que se juega en el navegador, con **servidor autoritativo**: el servidor decide el movimiento, los disparos y el daño, así que el código del navegador no sirve para hacer trampas.
 
-> "Arena Rush" es un nombre provisional. El juego está *inspirado* en los shooters arcade tipo arena, pero todo (nombre, mapa, arte) es propio.
+> El juego está *inspirado* en los shooters arcade tipo arena, pero todo (nombre, mapa, arte) es propio.
 
 ## El mapa: Observatorio Andino
 

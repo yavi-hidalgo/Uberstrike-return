@@ -303,7 +303,7 @@ export function createMenu(root: HTMLElement, opts: MenuOptions) {
   const summary = el("div", { class: "m-summary" });
   const foot = el("div", { class: "m-foot" }, summary, el("div", { class: "m-foot-right" }, error, playBtn));
   root.append(
-    el("header", { class: "m-head" }, el("div", { class: "m-logo" }, "ARENA", el("span", {}, "RUSH")), tabsBar),
+    el("header", { class: "m-head" }, el("div", { class: "m-logo" }, "NEON", el("span", {}, "STRIKE")), tabsBar),
     el("div", { class: "m-body" }, panel, stage),
     foot,
   );

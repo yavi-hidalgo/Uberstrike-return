@@ -23,7 +23,7 @@ canvas#game { display: block; width: 100vw; height: 100vh; }
 }
 .m-head { display: flex; align-items: center; gap: 28px; padding: 14px clamp(16px, 4vw, 48px) 0; flex-wrap: wrap; }
 .m-logo { font-size: 34px; font-weight: 800; letter-spacing: 2px; line-height: 1; }
-.m-logo span { color: var(--accent); margin-left: 6px; }
+.m-logo span { color: var(--accent); }
 .m-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .m-tab {
   font: 700 17px var(--font); letter-spacing: 2px; text-transform: uppercase; color: var(--muted);
