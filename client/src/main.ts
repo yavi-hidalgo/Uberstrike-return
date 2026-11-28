@@ -8,7 +8,7 @@ import {
   BLOOM_RECOVERY, CATEGORY_NAMES, DEFAULT_MELEE, DEFAULT_PRIMARY, DEFAULT_SECONDARY, WEAPON_MODELS, effectiveSpread, validLoadout, weaponModel, weaponStats,
   type Category, type Loadout, type WeaponStats,
 } from "../../shared/src/weapons";
-import { aimDirection, rayMapHit, stepMove, type InputCmd, type MoveState } from "../../shared/src/physics";
+import { aimDirection, rayMap, rayMapHit, stepMove, type InputCmd, type MoveState } from "../../shared/src/physics";
 import type {
   BoomMsg, DamagedMsg, HitMsg, KillMsg, OtherSnapshot, PickedMsg, PickupsMsg, ProjMsg, RosterEntry, RosterMsg,
   ShotMsg, SnapshotMsg, SwingMsg, WelcomeMsg,
@@ -20,6 +20,7 @@ import { weaponFx } from "./fx";
 import { validLook, type Look } from "../../shared/src/gear";
 import { createMenu, loadState, type Settings } from "./menu";
 import { music } from "./music";
+import { Reticles } from "./reticles";
 
 // Dirección del servidor de juego. En producción se define con VITE_SERVER_URL; si no, se usa la
 // misma dirección de la página bajo /colyseus (Vite la reenvía al servidor del puerto 2567).
@@ -31,6 +32,9 @@ const INTERP_DELAY_MS = 100; // igual que CLIENT_INTERP_MS en el servidor
 const MOUSE_SENS = 0.0022;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+/** Miras (cruz, holográfica y telescópica) y dirección reutilizada para medir la distancia al apuntar. */
+const reticles = new Reticles($("crosshair"), $("ads-reticle"), $("scope"));
+const scopeDir = new THREE.Vector3();
 const canvas = $<HTMLCanvasElement>("game");
 const quality = loadQuality();
 // Mapa: el de la URL (?map=...) o el predeterminado. Si el servidor usa otro, se recarga con ese.
@@ -649,13 +653,19 @@ function updateHud() {
   const zoomed = aiming && me.alive && !me.reloading && !me.switching && w.zoomFov > 0;
   // Al correr el campo de visión se abre un poco: da sensación de velocidad
   world.setZoom(zoomed ? w.zoomFov : 0, sprinting ? 5 : 0);
-  $("scope").classList.toggle("hidden", !(zoomed && w.scope));
-  // Mira dinámica: se abre con la dispersión real del arma (movimiento, saltos y ráfagas)
+  // Miras: la cruz se abre con la dispersión real del arma (movimiento, saltos y ráfagas); al apuntar
+  // aparece la mira holográfica y, en los francotiradores, la telescópica con la distancia al objetivo
   const fovRad = (world.camera.fov * Math.PI) / 180;
   const gap = Math.max(3, Math.min(90, (Math.tan(currentSpread()) / Math.tan(fovRad / 2)) * (window.innerHeight / 2)));
-  const ch = $("crosshair");
-  ch.style.setProperty("--gap", `${gap.toFixed(1)}px`);
-  ch.classList.toggle("ads", zoomed && !w.scope);
+  reticles.setWeapon(weaponFx(loadout[me.weapon]));
+  const scoped = zoomed && w.scope;
+  let range: number | null = null;
+  if (scoped) {
+    const cam = world.camera, d = cam.getWorldDirection(scopeDir);
+    const t = rayMap(cam.position.x, cam.position.y, cam.position.z, d.x, d.y, d.z, 400, boxes);
+    range = t < 399 ? t : null;
+  }
+  reticles.update({ gap, ads: zoomed && !w.scope && w.meleeRange <= 0, scoped, range, zoom: Math.tan((72 * Math.PI) / 360) / Math.tan(fovRad / 2) });
   $("slot-1").classList.toggle("active", me.weapon === 0);
   $("slot-2").classList.toggle("active", me.weapon === 1);
   $("slot-3").classList.toggle("active", me.weapon === 2);

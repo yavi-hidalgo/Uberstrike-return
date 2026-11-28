@@ -183,27 +183,105 @@ kbd {
 
 #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
 
+/* ---------- Miras ---------- */
+/* Mira telescópica: todo negro fuera del círculo; dentro, cristal tintado con viñeta, reflejo y retícula */
 #scope {
-  position: absolute; inset: 0;
-  background: radial-gradient(circle at center, transparent 0, transparent min(34vh, 34vw), #000 calc(min(34vh, 34vw) + 2px));
+  position: absolute; inset: 0; --r: min(36vh, 36vw);
+  background: radial-gradient(circle at center, transparent 0, transparent calc(var(--r) - 1px), #000 calc(var(--r) + 1px));
 }
-#scope .scope-ring {
-  position: absolute; left: 50%; top: 50%; width: min(68vh, 68vw); aspect-ratio: 1; transform: translate(-50%, -50%);
-  border-radius: 50%; box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
-  background:
-    linear-gradient(transparent calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
-    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% - 0.5px), rgba(0, 0, 0, 0.85) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+#scope .scope-lens {
+  position: absolute; left: 50%; top: 50%; width: calc(var(--r) * 2); aspect-ratio: 1; transform: translate(-50%, -50%);
+  border-radius: 50%; overflow: hidden;
+  background: radial-gradient(circle, rgba(130, 175, 190, 0.03) 0%, rgba(70, 115, 135, 0.08) 62%, rgba(10, 24, 34, 0.55) 92%, rgba(0, 0, 0, 0.92) 100%);
+  box-shadow: inset 0 0 calc(var(--r) * 0.2) rgba(0, 0, 0, 0.85), 0 0 0 3px #040404;
 }
+#scope .scope-lens::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(ellipse 42% 22% at 32% 20%, rgba(255, 255, 255, 0.09), transparent 70%);
+}
+#scope .scope-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.scope-svg .post { stroke: #050505; stroke-width: 3.4; }
+.scope-svg .fine { stroke: #050505; stroke-width: 0.55; fill: none; }
+.scope-svg .mil { fill: #050505; }
+.scope-svg .lbl { fill: #050505; font: 700 4.2px var(--font); }
+.scope-svg .dot { fill: #ff2a2a; }
+#scope.digital .scope-lens { background: radial-gradient(circle, rgba(40, 150, 210, 0.08) 0%, rgba(20, 90, 150, 0.16) 70%, rgba(0, 10, 30, 0.85) 100%); }
+#scope.digital .scope-lens::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: repeating-linear-gradient(0deg, rgba(120, 220, 255, 0.05) 0 1px, transparent 1px 3px);
+}
+.scope-svg .d { stroke: #5fe0ff; stroke-width: 0.6; fill: none; filter: drop-shadow(0 0 1.5px rgba(95, 224, 255, 0.9)); }
+.scope-svg .d.wide { stroke-width: 1.3; }
+.scope-svg .dl { fill: #5fe0ff; font: 700 4.6px var(--font); text-anchor: middle; }
+#scope .scope-info {
+  position: absolute; left: 50%; top: calc(50% + var(--r) + 12px); transform: translateX(-50%);
+  display: flex; gap: 20px; font: 700 18px var(--font); letter-spacing: 2px; color: #c9d4e2;
+}
+#scope.digital .scope-info { color: #5fe0ff; }
+
+/* Mira holográfica al apuntar: retícula luminosa en el centro, sobre el arma */
+#ads-reticle {
+  position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; --rc: #ff3b3b;
+  transform: translate(-50%, -50%) scale(0.8); opacity: 0; transition: opacity 0.12s, transform 0.12s;
+  filter: drop-shadow(0 0 2px var(--rc)) drop-shadow(0 0 5px rgba(255, 59, 59, 0.45));
+}
+#ads-reticle.energy { --rc: #5fe0ff; filter: drop-shadow(0 0 2px var(--rc)) drop-shadow(0 0 5px rgba(95, 224, 255, 0.45)); }
+#ads-reticle.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.ads-svg { width: 100%; height: 100%; overflow: visible; }
+.ads-svg .s { stroke: var(--rc); stroke-width: 2.2; fill: none; stroke-linecap: round; }
+.ads-svg .s.thin { stroke-width: 1.5; }
+.ads-svg .f { fill: var(--rc); }
+#scope:not(.hidden) ~ #ads-reticle { display: none; }
+
+/* Cruz al disparar desde la cadera: cada tipo de arma muestra sus piezas; --gap la abre con la dispersión */
+#crosshair {
+  position: absolute; left: 50%; top: 50%; width: 0; height: 0; --gap: 6px; --c: rgba(255, 255, 255, 0.95);
+  transition: opacity 0.12s; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 2px rgba(0, 0, 0, 0.45));
+}
+#crosshair.energy { --c: #92eaff; }
+#crosshair.off { opacity: 0; }
 #scope:not(.hidden) ~ #crosshair { display: none; }
-#crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
-#crosshair i { position: absolute; background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 2px rgba(0, 0, 0, 0.9); }
-#crosshair { --gap: 6px; transition: opacity 0.12s; }
-#crosshair i:nth-child(1) { width: 2px; height: 7px; left: -1px; top: calc(-7px - var(--gap)); }
-#crosshair i:nth-child(2) { width: 2px; height: 7px; left: -1px; top: var(--gap); }
-#crosshair i:nth-child(3) { width: 7px; height: 2px; left: calc(-7px - var(--gap)); top: -1px; }
-#crosshair i:nth-child(4) { width: 7px; height: 2px; left: var(--gap); top: -1px; }
-#crosshair.ads i { opacity: 0.35; }
-#crosshair b { position: absolute; width: 2px; height: 2px; left: -1px; top: -1px; background: #fff; border-radius: 1px; }
+#crosshair i { position: absolute; display: none; box-sizing: border-box; }
+#crosshair .t { background: var(--c); --len: 8px; --w: 2px; }
+#crosshair .t1 { width: var(--w); height: var(--len); left: calc(var(--w) / -2); top: calc(-1 * var(--len) - var(--gap)); }
+#crosshair .t2 { width: var(--w); height: var(--len); left: calc(var(--w) / -2); top: var(--gap); }
+#crosshair .t3 { width: var(--len); height: var(--w); top: calc(var(--w) / -2); left: calc(-1 * var(--len) - var(--gap)); }
+#crosshair .t4 { width: var(--len); height: var(--w); top: calc(var(--w) / -2); left: var(--gap); }
+#crosshair .dot { width: 3px; height: 3px; left: -1.5px; top: -1.5px; border-radius: 50%; background: var(--c); }
+#crosshair .ring { width: calc(var(--gap) * 2); height: calc(var(--gap) * 2); left: calc(-1 * var(--gap)); top: calc(-1 * var(--gap)); border: 1.5px solid var(--c); border-radius: 50%; }
+#crosshair .chev { width: 11px; height: 11px; left: -5.5px; top: 1px; border-left: 2px solid var(--c); border-top: 2px solid var(--c); transform: rotate(45deg); }
+#crosshair .drop {
+  width: 12px; height: 16px; left: -6px; top: calc(var(--gap) + 12px);
+  background: linear-gradient(var(--c), var(--c)) 50% 0 / 100% 2px no-repeat, linear-gradient(var(--c), var(--c)) 50% 7px / 66% 2px no-repeat, linear-gradient(var(--c), var(--c)) 50% 14px / 34% 2px no-repeat;
+}
+#crosshair .diam { width: calc(var(--gap) * 1.5 + 10px); height: calc(var(--gap) * 1.5 + 10px); left: 0; top: 0; border: 1.5px solid var(--c); transform: translate(-50%, -50%) rotate(45deg); }
+/* rifle: cuatro rayas y punto */
+#crosshair.k-rifle .t, #crosshair.k-rifle .dot { display: block; }
+/* subfusil: rayas cortas, anillo tenue y punto */
+#crosshair.k-smg .t, #crosshair.k-smg .ring, #crosshair.k-smg .dot { display: block; }
+#crosshair.k-smg .t { --len: 5px; }
+#crosshair.k-smg .ring { opacity: 0.45; border-width: 1px; }
+/* pistola: tres rayas (sin la de arriba) y punto */
+#crosshair.k-pistol .t2, #crosshair.k-pistol .t3, #crosshair.k-pistol .t4, #crosshair.k-pistol .dot { display: block; }
+#crosshair.k-pistol .t { --len: 7px; }
+/* escopeta: el cono de perdigones como círculo, con marcas cortas por fuera */
+#crosshair.k-shotgun .ring, #crosshair.k-shotgun .t, #crosshair.k-shotgun .dot { display: block; }
+#crosshair.k-shotgun .t { --len: 5px; }
+/* francotirador sin apuntar: solo un círculo tenue (desde la cadera es muy impreciso) */
+#crosshair.k-sniper .ring, #crosshair.k-sniper .dot { display: block; }
+#crosshair.k-sniper .ring { opacity: 0.35; }
+/* lanzacohetes: chevrón y marcas de caída */
+#crosshair.k-launcher .chev, #crosshair.k-launcher .drop { display: block; }
+/* plasma: anillo, rayas cortas y punto */
+#crosshair.k-plasma .ring, #crosshair.k-plasma .t, #crosshair.k-plasma .dot { display: block; }
+#crosshair.k-plasma .t { --len: 4px; }
+/* riel: rombo y punto */
+#crosshair.k-rail .diam, #crosshair.k-rail .dot { display: block; }
+/* minigun: anillo con rayas */
+#crosshair.k-minigun .ring, #crosshair.k-minigun .t, #crosshair.k-minigun .dot { display: block; }
+#crosshair.k-minigun .t { --len: 7px; }
+/* arma blanca: un punto un poco mayor */
+#crosshair.k-melee .dot { display: block; width: 5px; height: 5px; left: -2.5px; top: -2.5px; }
 
 #hitmarker {
   position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; opacity: 0;
