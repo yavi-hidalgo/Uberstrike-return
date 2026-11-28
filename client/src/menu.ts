@@ -180,14 +180,19 @@ class Preview {
       }
       this.pivot.visible = char;
       this.weaponOnly.visible = !char;
+      // la cámara se aleja si la vista es estrecha, para que el personaje o el arma quepan a lo ancho
+      const halfW = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect;
       if (char) {
         this.pivot.rotation.y = this.spin;
         this.char?.update(dt, 0, false);
-        this.camera.position.set(0, 1.15, 3.7);
+        const d = Math.max(3.7, 0.95 / halfW);
+        this.camera.position.set(0, 1.15, d);
         this.camera.lookAt(0, 0.93, 0);
       } else {
         this.weaponOnly.rotation.y = this.spin;
-        this.camera.position.set(0, 0.35, 3.2);
+        // lo más cerca posible sin que el arma (1,7 m de largo al girar) se salga por los lados ni por arriba
+        const d = Math.max(2.1, 1.0 / halfW, 0.62 / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)));
+        this.camera.position.set(0, 0.35 * d / 3.2, d);
         this.camera.lookAt(0, 0, 0);
       }
       this.renderer.render(this.scene, this.camera);
