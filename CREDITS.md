@@ -178,6 +178,30 @@ Cielo HDRI: industrial_sunset_02_puresky.
 
 Se modificaron: texturas comprimidas a WebP, geometría reducida en los modelos pesados, materiales convertidos a metal-rugosidad, pose de combate y paso al caminar añadidos por código, y el equipo escalado y colocado sobre los huesos de cada personaje.
 
+## Sonidos de armas (OpenGameArt)
+
+Las grabaciones están recortadas, igualadas de volumen y con una ligera saturación para dar pegada
+(`client/public/assets/sfx`). En el juego se mezclan con un golpe grave sintetizado y eco generado
+según el mapa.
+
+| Archivos | Origen | Autor | Licencia |
+|---|---|---|---|
+| `rifle_mb`, `smg_mb`, `pistol_mb`, `shotgun_mb` | [Chaingun, pistol, rifle, shotgun shots](https://opengameart.org/content/chaingun-pistol-rifle-shotgun-shots) | Michel Baradari (apollo-music.de) | CC BY 3.0 |
+| `rocket`, `plasma_a`, `plasma_b` | [4 projectile launches](https://opengameart.org/content/4-projectile-launches) | Michel Baradari | CC BY 3.0 |
+| `explode_big`, `explode_small` | [2 High Quality Explosions](https://opengameart.org/content/2-high-quality-explosions) | Michel Baradari | CC BY 3.0 |
+| `click_switch`, `click_empty` | [2 metal weapon clicks](https://opengameart.org/content/2-metal-weapon-clicks) | Michel Baradari | CC BY 3.0 |
+| `rifle_sks_*`, `pistol_cz_*`, `sniper_mosin_*` | [Gunshot Sounds](https://opengameart.org/content/gunshot-sounds) | Vincent Sevedge | CC BY 3.0 |
+| `rifle_lmg` | [Light Machine Gun](https://opengameart.org/content/light-machine-gun) | KuraiWolf | CC BY 4.0 |
+| `shotgun_10g`, `pump`, `bolt` | [Shotgun Shoot + Reload](https://opengameart.org/content/shotgun-shoot-reload) (de SoundBible) | Mike Koenig | CC BY 3.0 |
+| `e_rifle_a`, `e_rifle_b` | [Futuristic Weapons / Assault Rifle](https://opengameart.org/content/futuristic-weapons-assault-rifle) | Michael Klier | CC BY-SA 3.0 |
+| `e_shotgun` | [Futuristic Shotgun](https://opengameart.org/content/futuristic-shotgun) | Michael Klier | CC BY-SA 3.0 |
+| `e_sniper` | [Futuristic Sniper Rifle](https://opengameart.org/content/futuristic-sniper-rifle) | Michael Klier | CC BY-SA 3.0 |
+| `reload_rifle`, `reload_pistol`, `reload_shotgun` | [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | SpringySpringo | CC0 |
+| `swing_*`, `melee_clash` | [20 Sword Sound Effects](https://opengameart.org/content/20-sword-sound-effects-attacks-and-clashes) | StarNinjas | CC0 |
+| `melee_hit` | [3 Melee sounds](https://opengameart.org/content/3-melee-sounds) | qubodup, editado por remaxim | CC0 |
+
+Los archivos `e_*` derivan de obras CC BY-SA 3.0 y se distribuyen bajo esa misma licencia.
+
 ## Skills de Claude Code (licencia MIT)
 
 En `.claude/skills/` hay tres skills de [cloudai-x/threejs-skills](https://github.com/cloudai-x/threejs-skills)

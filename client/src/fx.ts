@@ -30,6 +30,8 @@ export interface WeaponFx {
   shake: number;
   /** Tono del sonido (1 = normal). */
   pitch: number;
+  /** Elige qué grabación de disparo usa este modelo (0..1), para que cada arma suene distinta. */
+  soundVariant: number;
   /** Tipo de cañón (solo en cañones). */
   cannon?: CannonKind;
 }
@@ -42,7 +44,7 @@ function hash(id: string, salt: number): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-const BALLISTIC: Record<Category, Omit<WeaponFx, "category" | "energy" | "color" | "pitch">> = {
+const BALLISTIC: Record<Category, Omit<WeaponFx, "category" | "energy" | "color" | "pitch" | "soundVariant">> = {
   rifle: { flashSize: 1, flashLight: 26, flashTime: 0.05, tracer: "bullet", width: 0.018, impact: 1, smoke: 0, casing: true, recoilUp: 0.011, recoilSide: 0.005, kick: 1, shake: 0.004 },
   smg: { flashSize: 0.7, flashLight: 16, flashTime: 0.035, tracer: "bullet", width: 0.012, impact: 0.7, smoke: 0, casing: true, recoilUp: 0.0055, recoilSide: 0.004, kick: 0.6, shake: 0.002 },
   shotgun: { flashSize: 1.9, flashLight: 45, flashTime: 0.07, tracer: "pellet", width: 0.01, impact: 0.6, smoke: 5, casing: true, recoilUp: 0.05, recoilSide: 0.012, kick: 2.2, shake: 0.02 },
@@ -85,6 +87,7 @@ export function weaponFx(id: string): WeaponFx {
     category, energy,
     color: energy ? ENERGY_COLORS[Math.floor(hash(id, 3) * ENERGY_COLORS.length)] : 0xffc37a,
     pitch: 0.88 + hash(id, 11) * 0.26,
+    soundVariant: hash(id, 17),
     ...(energy ? ENERGY[category] : {}),
   };
   if (m?.cannon) {

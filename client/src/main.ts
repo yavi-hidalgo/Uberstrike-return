@@ -40,6 +40,9 @@ const mapDef = mapById(new URLSearchParams(location.search).get("map") ?? savedM
 const boxes = mapDef.boxes;
 const world = new World(canvas, quality, mapDef);
 const worldReady = world.load();
+// Grabaciones de los disparos y eco del mapa (el audio en sí arranca con el primer clic)
+void sfx.preload(import.meta.env.BASE_URL);
+sfx.setEnvironment(mapDef.id);
 
 // ---------- Estado local ----------
 let room: Room | null = null;
@@ -193,8 +196,8 @@ async function connect(name: string) {
   room.onMessage("boom", onBoom);
   room.onMessage("swing", (m: SwingMsg) => {
     const o = remoteBuffer.length ? remoteBuffer[remoteBuffer.length - 1].others.get(m.id) : undefined;
-    const d = o ? Math.hypot(o[1] - pred.x, o[3] - pred.z) : 20;
-    if (d < 25) { if (m.hit) sfx.thud(); else sfx.swing(); }
+    const where = o ? soundAt(o[1], o[3]) : { distance: 20, pan: 0 };
+    if (where.distance < 25) { if (m.hit) sfx.thud(where); else sfx.swing(where); }
   });
   room.onMessage("kill", onKill);
   room.onMessage("hit", onHit);
@@ -276,6 +279,15 @@ function onRoster(r: RosterMsg) {
   renderScoreboard();
 }
 
+/** Distancia y dirección (izquierda/derecha) de un sonido respecto a donde miro. */
+function soundAt(x: number, z: number) {
+  const dx = x - pred.x, dz = z - pred.z;
+  const distance = Math.hypot(dx, dz);
+  // derecha de la mirada = (cos yaw, -sin yaw) en el plano XZ
+  const pan = distance > 0.5 ? (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / distance : 0;
+  return { distance, pan };
+}
+
 function onRemoteShot(s: ShotMsg) {
   const from = new THREE.Vector3(...s.from), to = new THREE.Vector3(...s.to);
   const dir = to.clone().sub(from);
@@ -290,7 +302,7 @@ function onRemoteShot(s: ShotMsg) {
   const now = performance.now();
   if (lastShotSound.get(s.id) !== undefined && now - lastShotSound.get(s.id)! < 25) return;
   lastShotSound.set(s.id, now);
-  sfx.weapon(fx, Math.max(0.1, Math.min(0.85, 1 - d / 70)));
+  sfx.weapon(fx, soundAt(s.from[0], s.from[2]));
   music.bump(d < 40 ? 0.12 : 0.04);
   // Silbido si la bala pasa cerca de la cabeza
   const eye = new THREE.Vector3(pred.x, pred.y + EYE_HEIGHT, pred.z);
@@ -308,8 +320,7 @@ function onProjectile(m: ProjMsg) {
   const from = new THREE.Vector3(...m.from), dir = new THREE.Vector3(...m.dir);
   const hit = rayMapHit(from.x, from.y, from.z, dir.x, dir.y, dir.z, 200, boxes);
   world.spawnProjectile(m.id, from, dir, m.speed, m.gravity, hit.t, fx, false);
-  const d = Math.hypot(m.from[0] - pred.x, m.from[2] - pred.z);
-  sfx.weapon(fx, Math.max(0.1, Math.min(0.85, 1 - d / 70)));
+  sfx.weapon(fx, soundAt(m.from[0], m.from[2]));
 }
 
 function onBoom(m: BoomMsg) {
@@ -317,7 +328,7 @@ function onBoom(m: BoomMsg) {
   const pos = new THREE.Vector3(...m.pos);
   world.explode(m.id, pos, m.radius, fx, m.owner === myId);
   const d = pos.distanceTo(new THREE.Vector3(pred.x, pred.y + EYE_HEIGHT, pred.z));
-  sfx.explosion(Math.min(1, 1.2 - d / 45), m.radius > 3.5);
+  sfx.explosion(Math.min(1, 1.2 - d / 45), m.radius > 3.5, soundAt(pos.x, pos.z).pan);
   if (d < m.radius * 3) shake = Math.min(0.07, shake + 0.05 * (1 - d / (m.radius * 3)));
 }
 
@@ -526,11 +537,14 @@ function predictLocalFire(keys: number) {
     if (!trigger || localFireCooldown > 0 || me.switching) return;
     localFireCooldown = w.fireIntervalTicks;
     world.swing(w.fireIntervalTicks * DT);
-    sfx.swing();
+    const heft = weaponModel(loadout[me.weapon])?.melee;
+    sfx.swing(undefined, heft === "heavy" ? 1.15 : heft === "light" ? 0.88 : 1);
     shake = Math.min(0.05, shake + 0.006);
     return;
   }
-  if ((keys & KEY.RELOAD) && me.ammo < w.magazine && !me.reloading) sfx.reload();
+  if ((keys & KEY.RELOAD) && me.ammo < w.magazine && !me.reloading) sfx.reload(weaponFx(loadout[me.weapon]).category);
+  // gatillo sin balas: clic seco
+  if (trigger && me.ammo <= 0 && !me.reloading && !me.switching && localFireCooldown === 0) { sfx.empty(); localFireCooldown = 8; }
   if (!trigger || localFireCooldown > 0 || me.reloading || me.switching || me.ammo <= 0) return;
   localFireCooldown = w.fireIntervalTicks;
   const ox = pred.x, oy = pred.y + EYE_HEIGHT, oz = pred.z;

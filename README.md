@@ -123,7 +123,7 @@ client/src/
   textures.ts    Texturas PBR generadas por código
   weapon.ts      Arma en primera persona y efectos de disparo
   avatars.ts     Jugadores rivales animados
-  audio.ts       Sonidos generados por código
+  audio.ts       Sonido: disparos grabados en capas, eco según el mapa y sonido posicional
 ```
 
 ## Cómo funciona el anti-trampas
