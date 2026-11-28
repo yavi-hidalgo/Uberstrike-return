@@ -3,6 +3,7 @@
 
 export type Category = "rifle" | "smg" | "shotgun" | "sniper" | "pistol" | "melee" | "cannon";
 export type MeleeClass = "light" | "medium" | "heavy";
+export type MeleeKind = "blade" | "wood" | "metal" | "energy";
 export type CannonKind = "rocket" | "plasma" | "rail" | "minigun";
 
 export interface WeaponModel {
@@ -14,6 +15,8 @@ export interface WeaponModel {
   source: string;
   /** Arma blanca: ligera (rápida), media o pesada (lenta y fuerte). */
   melee?: MeleeClass;
+  /** Arma blanca: de qué es la parte que golpea (cambia el sonido): hoja, madera, metal o energía. */
+  meleeKind?: MeleeKind;
   /** Cañón: cohete o plasma (proyectil con explosión), riel (rayo) o minigun. */
   cannon?: CannonKind;
   /** Pack de brazos animados en primera persona (los demás jugadores ven `thirdPerson`). */
@@ -139,21 +142,21 @@ export const WEAPON_MODELS: WeaponModel[] = [
   { id: "a2f03e4836", name: "Bullpup Revolver", author: "igor.tesV", category: "pistol", futuristic: false, source: "https://sketchfab.com/3d-models/none-a2f03e4836124c82a69098dd09fa726c" },
   { id: "c254bb8ee0", name: "Revólver Navy Colt 1851", author: "Johan Pindeville", category: "pistol", futuristic: false, source: "https://sketchfab.com/3d-models/none-c254bb8ee01a4d9db9e6bbdc652d6c11" },
   { id: "6e62a5c020", name: "Revólver", author: "Mik Santos", category: "pistol", futuristic: false, source: "https://sketchfab.com/3d-models/none-6e62a5c020024d47aac3782910e40d13" },
-  { id: "778d3dfe4c", name: "Katana Oni Koroshi", author: "Sky_Hunter", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-778d3dfe4cc549dd93c9bdc5ad78a420", melee: "medium" },
-  { id: "6b27a5a86d", name: "Soulsucker", author: "tuomaspaul", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-6b27a5a86dad4d13a6ff02ab5a1dcbce", melee: "heavy" },
-  { id: "425e6efd8d", name: "Bate con clavos", author: "_", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-425e6efd8d81408fa63ff2c2962840d1", melee: "medium" },
-  { id: "75ba882dd7", name: "Palanca", author: "Superior", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-75ba882dd7114eca8d58b73e303cd269", melee: "medium" },
-  { id: "b91d507622", name: "Levitron, espadón", author: "Wawann", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-b91d50762282401cacbdbf8e563f8a4c", melee: "heavy" },
-  { id: "48095b439e", name: "Bate", author: "Pablo88", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-48095b439ec5464db93337b2c3457fcc", melee: "medium" },
-  { id: "340a3bed23", name: "Machete", author: "Belonosoff", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-340a3bed238f48b0aa169c38e1e75066", melee: "light" },
-  { id: "80d9caaa1f", name: "Katana No Name", author: "Wawann", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-80d9caaa1fa04502af666135196456e1", melee: "light" },
-  { id: "d0c12e5781", name: "Espadón futurista", author: "Kai Xiang", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-d0c12e5781b7400fb8268452cde79533", melee: "heavy" },
-  { id: "e3caffae38", name: "Neon Blade", author: "Wawann", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-e3caffae38ff43aea3476cea700b6a00", melee: "medium" },
-  { id: "5ea945cb4d", name: "Pala vieja", author: "Oliver Triplett", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-5ea945cb4d9a4bd387fb9d6ed74527f1", melee: "heavy" },
-  { id: "0c15905a8d", name: "Espada futurista", author: "mazazaker", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-0c15905a8d51444b91a20ba2c311fbc2", melee: "medium" },
-  { id: "23975f3cbb", name: "Katana futurista", author: "SkillingBlack21", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-23975f3cbb484a91b8c699a5bae9f1f8", melee: "light" },
-  { id: "a402ec2c06", name: "Pala", author: "MaX3Dd", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-a402ec2c06d04bd09b301c2a76d2f630", melee: "heavy" },
-  { id: "b60ea3fea9", name: "Khopesh futurista", author: "valterjherson1", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-b60ea3fea9fa4cecbbdb47b37db64f25", melee: "medium" },
+  { id: "778d3dfe4c", name: "Katana Oni Koroshi", author: "Sky_Hunter", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-778d3dfe4cc549dd93c9bdc5ad78a420", melee: "medium", meleeKind: "blade" },
+  { id: "6b27a5a86d", name: "Soulsucker", author: "tuomaspaul", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-6b27a5a86dad4d13a6ff02ab5a1dcbce", melee: "heavy", meleeKind: "energy" },
+  { id: "425e6efd8d", name: "Bate con clavos", author: "_", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-425e6efd8d81408fa63ff2c2962840d1", melee: "medium", meleeKind: "wood" },
+  { id: "75ba882dd7", name: "Palanca", author: "Superior", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-75ba882dd7114eca8d58b73e303cd269", melee: "medium", meleeKind: "metal" },
+  { id: "b91d507622", name: "Levitron, espadón", author: "Wawann", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-b91d50762282401cacbdbf8e563f8a4c", melee: "heavy", meleeKind: "energy" },
+  { id: "48095b439e", name: "Bate", author: "Pablo88", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-48095b439ec5464db93337b2c3457fcc", melee: "medium", meleeKind: "wood" },
+  { id: "340a3bed23", name: "Machete", author: "Belonosoff", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-340a3bed238f48b0aa169c38e1e75066", melee: "light", meleeKind: "blade" },
+  { id: "80d9caaa1f", name: "Katana No Name", author: "Wawann", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-80d9caaa1fa04502af666135196456e1", melee: "light", meleeKind: "blade" },
+  { id: "d0c12e5781", name: "Espadón futurista", author: "Kai Xiang", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-d0c12e5781b7400fb8268452cde79533", melee: "heavy", meleeKind: "blade" },
+  { id: "e3caffae38", name: "Neon Blade", author: "Wawann", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-e3caffae38ff43aea3476cea700b6a00", melee: "medium", meleeKind: "energy" },
+  { id: "5ea945cb4d", name: "Pala vieja", author: "Oliver Triplett", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-5ea945cb4d9a4bd387fb9d6ed74527f1", melee: "heavy", meleeKind: "metal" },
+  { id: "0c15905a8d", name: "Espada futurista", author: "mazazaker", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-0c15905a8d51444b91a20ba2c311fbc2", melee: "medium", meleeKind: "energy" },
+  { id: "23975f3cbb", name: "Katana futurista", author: "SkillingBlack21", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-23975f3cbb484a91b8c699a5bae9f1f8", melee: "light", meleeKind: "blade" },
+  { id: "a402ec2c06", name: "Pala", author: "MaX3Dd", category: "melee", futuristic: false, source: "https://sketchfab.com/3d-models/none-a402ec2c06d04bd09b301c2a76d2f630", melee: "heavy", meleeKind: "metal" },
+  { id: "b60ea3fea9", name: "Khopesh futurista", author: "valterjherson1", category: "melee", futuristic: true, source: "https://sketchfab.com/3d-models/none-b60ea3fea9fa4cecbbdb47b37db64f25", melee: "medium", meleeKind: "blade" },
   { id: "e2c072b894", name: "Lightgun improvisado", author: "Christian Rudorff", category: "cannon", futuristic: true, source: "https://sketchfab.com/3d-models/none-e2c072b89454484bace2b7675f7577a2", cannon: "plasma" },
   { id: "8f008c3e18", name: "Minigun M134", author: "Alexander_Borisevich", category: "cannon", futuristic: false, source: "https://sketchfab.com/3d-models/none-8f008c3e18934707a834cde8c72364f5", cannon: "minigun" },
   { id: "3cc4cac6aa", name: "Minigun futurista", author: "Andy B", category: "cannon", futuristic: true, source: "https://sketchfab.com/3d-models/none-3cc4cac6aa614f0fbe4a0c46db2a2c8e", cannon: "minigun" },

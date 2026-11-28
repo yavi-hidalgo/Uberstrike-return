@@ -199,6 +199,10 @@ según el mapa.
 | `reload_rifle`, `reload_pistol`, `reload_shotgun` | [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | SpringySpringo | CC0 |
 | `swing_*`, `melee_clash` | [20 Sword Sound Effects](https://opengameart.org/content/20-sword-sound-effects-attacks-and-clashes) | StarNinjas | CC0 |
 | `melee_hit` | [3 Melee sounds](https://opengameart.org/content/3-melee-sounds) | qubodup, editado por remaxim | CC0 |
+| `slice_*` | [80 CC0 RPG SFX](https://opengameart.org/content/80-cc0-rpg-sfx) | rubberduck | CC0 |
+| `wood_*`, `metal_*` | [100 CC0 metal and wood SFX](https://opengameart.org/content/100-cc0-metal-and-wood-sfx) | rubberduck | CC0 |
+| `flesh_*` | [40 wet towel club/pound/hit/attack sounds](https://opengameart.org/content/40-wet-towel-clubpoundhitattack-sounds) | qubodup | CC0 |
+| `thud_heavy` | [37 hits/punches](https://opengameart.org/content/37-hitspunches) | Independent.nu | CC0 |
 
 Los archivos `e_*` derivan de obras CC BY-SA 3.0 y se distribuyen bajo esa misma licencia.
 

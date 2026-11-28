@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { bulletHoleSprite, flashSprite, softSprite } from "./textures";
 import type { ArmsViewModel } from "./fparms";
+import { meleeGeometry } from "./skins";
 
 const gunmetal = () => new THREE.MeshStandardMaterial({ color: 0x2a2e33, metalness: 0.85, roughness: 0.36 });
 const polymerTan = () => new THREE.MeshStandardMaterial({ color: 0x8a7a5e, metalness: 0, roughness: 0.72 });
@@ -302,10 +303,34 @@ export class ShotEffects {
   }
 }
 
+/**
+ * Poses clave del arma blanca en primera persona (espacio de la cámara: X derecha, Y arriba, -Z al
+ * frente). `b` es hacia dónde apunta la hoja y `p` dónde está la mano (siempre fuera de la pantalla).
+ * El filo mira en la dirección del corte, así golpea con el filo y no con el lomo.
+ */
+interface MeleeKey { p: THREE.Vector3; q: THREE.Quaternion }
+const MELEE_UP = new THREE.Vector3(0, 1, 0);
+const MELEE_KEYS = (() => {
+  const n = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).normalize();
+  // reposo: la hoja hacia arriba y adelante; impulso: armada arriba a la derecha; fin del corte: abajo a
+  // la izquierda. Entre impulso y corte la hoja barre por delante, cruzando el centro de la pantalla.
+  const bIdle = n(-0.14, 0.84, -0.52), bWind = n(0.6, 0.78, 0.05), bStrike = n(-0.88, -0.38, -0.2);
+  const cut = bStrike.clone().sub(bWind).normalize(); // hacia dónde corre la punta durante el corte
+  const key = (b: THREE.Vector3, p: THREE.Vector3): MeleeKey => {
+    const e = cut.clone().addScaledVector(b, -cut.dot(b)).normalize();
+    return { p, q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(e, b, e.clone().cross(b))) };
+  };
+  return {
+    idle: key(bIdle, new THREE.Vector3(0.36, -0.42, -0.36)),
+    wind: key(bWind, new THREE.Vector3(0.34, 0.02, -0.16)),
+    strike: key(bStrike, new THREE.Vector3(-0.06, -0.44, -0.46)),
+  };
+})();
+
 /** Arma en primera persona: balanceo al caminar, inercia, retroceso, recarga, cambio de arma y fogonazo. */
 export class ViewWeapon {
   readonly root = new THREE.Group(); // colgado de la cámara
-  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number; yaw?: number; roll?: number; pitch?: number; melee?: boolean; arms?: ArmsViewModel } | null)[] = [null, null, null];
+  private slots: ({ group: THREE.Group; muzzle: THREE.Object3D; ejector: THREE.Object3D; base: THREE.Vector3; kick: number; yaw?: number; roll?: number; pitch?: number; melee?: boolean; pivot?: THREE.Group; hilt?: number; guardR?: number; arms?: ArmsViewModel } | null)[] = [null, null, null];
   /** Golpe del arma blanca: 1 al empezar, baja a 0. */
   private swingT = 0;
   private swingDur = 0.3;
@@ -357,14 +382,23 @@ export class ViewWeapon {
     group.add(muzzle, ejector);
     const len = anchors.size.z;
     if (opts.melee) {
-      // Arma blanca: empuñada abajo a la derecha, con la hoja hacia arriba y adelante
-      const p = 0.78, y = 0.3;
-      const grip = new THREE.Vector3(0.25, -0.2, -0.45);
-      const dir = new THREE.Vector3(-Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p));
-      const base = grip.addScaledVector(dir, len / 2 - 0.1);
+      // Arma blanca: cuelga de un pivote en la mano, fuera de la pantalla (abajo a la derecha). Solo se
+      // ve la hoja; el golpe la hace girar desde ahí con el filo por delante.
+      const geo = meleeGeometry(model);
+      group.remove(model);
+      const orient = new THREE.Group();
+      // espacio del pivote: la hoja hacia +Y y el filo hacia +X
+      const a = new THREE.Vector3(0, 0, -1), e = geo.edge.clone().normalize();
+      orient.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(e, a, e.clone().cross(a))).invert();
+      model.position.copy(geo.grip).negate();
+      orient.add(model);
+      const pivot = new THREE.Group();
+      pivot.add(orient);
+      group.add(pivot);
       group.visible = slot === this.current;
       this.root.add(group);
-      this.slots[slot] = { group, muzzle, ejector, base, kick: 0, yaw: y, roll: -0.35, pitch: p, melee: true };
+      this.slots[slot] = { group, muzzle, ejector, base: new THREE.Vector3(), kick: 0, melee: true, pivot, hilt: geo.hilt, guardR: geo.guardR };
+      this.applyMeleePose(pivot, 1, geo.hilt, geo.guardR);
       return;
     }
     const pistol = len < 0.4;
@@ -418,10 +452,39 @@ export class ViewWeapon {
     return a ? a.ejector.getWorldPosition(new THREE.Vector3()) : this.root.getWorldPosition(new THREE.Vector3());
   }
 
+  /** Pose del arma blanca en la fase `ph` del golpe (0 = empieza, 1 = terminado / en reposo). */
+  private applyMeleePose(pivot: THREE.Group, ph: number, hilt = 0.24, guardR = 0.05) {
+    const K = MELEE_KEYS;
+    const ease = (t: number) => t * t * (3 - 2 * t);
+    let a: MeleeKey, b: MeleeKey, t: number;
+    if (ph >= 1) { a = K.idle; b = K.idle; t = 0; }
+    else if (ph < 0.18) { a = K.idle; b = K.wind; t = 1 - (1 - ph / 0.18) ** 2; }
+    else if (ph < 0.52) {
+      // el corte: casi a velocidad constante, para que la hoja se vea cruzar la pantalla
+      a = K.wind; b = K.strike; const u = (ph - 0.18) / 0.34;
+      t = 0.6 * u + 0.4 * (0.5 - 0.5 * Math.cos(Math.PI * u));
+    } else { a = K.strike; b = K.idle; t = ease((ph - 0.52) / 0.48); }
+    pivot.quaternion.slerpQuaternions(a.q, b.q, t);
+    pivot.position.lerpVectors(a.p, b.p, t);
+    // el mango nunca entra en la vista: si la mano o la guarda quedarían dentro de la pantalla, la mano
+    // baja lo necesario (con margen por el ancho de la guarda y el vaivén al caminar)
+    const blade = MELEE_UP.clone().applyQuaternion(pivot.quaternion);
+    const tanHalf = Math.tan((72 * Math.PI) / 360), aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    let drop = 0;
+    for (const [d, m] of [[0, 0.07], [hilt, guardR + 0.04]]) {
+      const p = pivot.position.clone().addScaledVector(blade, d);
+      const depth = -p.z;
+      if (depth < 0.04) continue; // detrás de la cámara
+      if (p.x - m > tanHalf * aspect * depth) continue; // fuera por la derecha
+      drop = Math.max(drop, p.y - (-tanHalf * depth - m));
+    }
+    pivot.position.y -= drop;
+  }
+
   /** Golpe con el arma blanca (dura `seconds`). */
   swing(seconds: number) {
     this.swingT = 1;
-    this.swingDur = Math.max(0.18, Math.min(0.45, seconds * 0.8));
+    this.swingDur = Math.max(0.3, Math.min(0.55, seconds * 0.9));
   }
 
   /** Fogonazo y golpe del arma, según su perfil de efectos. */
@@ -473,18 +536,12 @@ export class ViewWeapon {
       b.z + Math.min(1.4, k) * 0.045 + ads * 0.05,
     );
     const aimK = (1 - this.aimT) * (1 - ads * 0.9);
-    if (a.melee) {
-      // Tajo: la hoja sube un poco y baja cruzando la pantalla
+    if (a.melee && a.pivot) {
+      // Tajo: tomar impulso sobre el hombro derecho, cortar en diagonal hacia abajo a la izquierda y volver
       this.swingT = Math.max(0, this.swingT - dt / this.swingDur);
-      const ph = 1 - this.swingT;
-      const wind = this.swingT > 0 ? Math.sin(Math.min(1, ph * 4) * Math.PI) * 0.25 : 0;
-      const cut = this.swingT > 0 ? Math.sin(Math.max(0, (ph - 0.15) / 0.85) * Math.PI) : 0;
-      this.root.position.x -= cut * 0.2; this.root.position.y -= cut * 0.1; this.root.position.z -= cut * 0.18;
-      this.root.rotation.set(
-        (a.pitch ?? 0) + wind - cut * 1.7 - this.switchT * 0.8,
-        (a.yaw ?? 0) + this.sway.x * 1.5 + cut * 0.9,
-        (a.roll ?? 0) + bobX * 2 + cut * 0.8,
-      );
+      this.applyMeleePose(a.pivot, this.swingT > 0 ? 1 - this.swingT : 1, a.hilt, a.guardR);
+      this.root.position.set(bobX + this.sway.x, -bobY + this.sway.y - this.switchT * 0.3 + (opts.onGround ? 0 : -0.015) - run * 0.03, 0);
+      this.root.rotation.set(-this.switchT * 0.8 + this.sway.y * 0.6, this.sway.x * 1.5, bobX * 2);
       this.flash.visible = false;
       this.flashLight.intensity = 0;
       return;

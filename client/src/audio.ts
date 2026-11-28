@@ -122,6 +122,8 @@ const SAMPLES = [
   "rocket", "plasma_a", "plasma_b", "explode_big", "explode_small", "pump", "bolt",
   "reload_rifle", "reload_pistol", "reload_shotgun", "click_switch", "click_empty",
   "swing_a", "swing_b", "swing_c", "swing_d", "melee_hit", "melee_clash",
+  "slice_a", "slice_b", "slice_c", "flesh_a", "flesh_b", "flesh_c", "thud_heavy",
+  "wood_a", "wood_b", "wood_c", "metal_a", "metal_b", "metal_c",
 ] as const;
 type SampleName = (typeof SAMPLES)[number];
 
@@ -349,6 +351,18 @@ function recipeFor(fx: { category: string; energy: boolean; cannon?: string }): 
   return RECIPES[(fx.energy ? "e_" : "") + fx.category] ?? RECIPES[fx.category] ?? RECIPES.rifle;
 }
 
+/** Material de la parte que golpea un arma blanca, y su peso (1 = media; >1 pesada y más grave). */
+export type MeleeKind = "blade" | "wood" | "metal" | "energy";
+const SWINGS = ["swing_a", "swing_b", "swing_c", "swing_d"] as const;
+const FLESH = ["flesh_a", "flesh_b", "flesh_c"] as const;
+
+/** Zumbido de una hoja de energía al moverse. */
+function energyHum(heft: number, gain: number) {
+  tone(95 / heft, 0.34, 0.22 * gain, "sawtooth", 150 / heft);
+  tone(190 / heft, 0.3, 0.1 * gain, "square", 120 / heft, 0.04);
+  noise(0.25, "bandpass", 2400, 0.08 * gain, 1.4, 3);
+}
+
 /** Dónde suena un disparo de otro: distancia (m) y dirección (-1 izquierda … 1 derecha). */
 export interface Where { distance: number; pan: number }
 
@@ -397,6 +411,37 @@ export const sfx = {
     if (r.extra && d < 45) { vol = near; r.extra(); }
     if (r.mech && d < 18) play(r.mech.name, { rate: r.mech.rate ?? 1, gain: r.mech.gain * near, delay: delay + r.mech.delay, pan, wet: 0.12, lowpass });
     rate = 1; vol = 1; synthPan = 0; synthDelay = 0;
+  },
+  /**
+   * Arma blanca cortando el aire, según su material: las hojas silban agudo, los bates y palas
+   * hacen un "vuuum" grave y las de energía zumban. `heft` > 1 = más pesada (más lenta y grave).
+   */
+  meleeSwing: (kind: MeleeKind, heft = 1, where?: Where) => {
+    const d = where?.distance ?? 0, near = where ? Math.max(0.1, 1 - d / 25) : 1, pan = where?.pan ?? 0;
+    const name = pick(SWINGS);
+    if (kind === "blade") play(name, { rate: (1.02 + Math.random() * 0.14) / heft, gain: 0.8 * near, pan, wet: 0.08 });
+    else if (kind === "energy") { play(name, { rate: (0.95 + Math.random() * 0.1) / heft, gain: 0.55 * near, pan, wet: 0.12 }); vol = near; synthPan = pan; energyHum(heft, 1); vol = 1; synthPan = 0; }
+    else play(name, { rate: (0.7 + Math.random() * 0.08) / heft, gain: 0.95 * near, pan, wet: 0.06, lowpass: kind === "wood" ? 1800 : 2600 });
+  },
+  /**
+   * Golpe que acierta: el sonido del objeto (corte metálico, madera, metal, chispazo) sobre el golpe
+   * en el cuerpo; las armas pesadas suman un golpe grave.
+   */
+  meleeImpact: (kind: MeleeKind, heft = 1, where?: Where) => {
+    const d = where?.distance ?? 0, near = where ? Math.max(0.1, 1 - d / 25) : 1, pan = where?.pan ?? 0;
+    const r = () => (0.92 + Math.random() * 0.14) / Math.sqrt(heft);
+    let ok = play(pick(FLESH), { rate: r(), gain: (kind === "blade" ? 0.75 : 0.65) * near, pan, wet: 0.1 });
+    if (kind === "blade") ok = play(pick(["slice_a", "slice_b", "slice_c"] as const), { rate: r(), gain: 0.8 * near, pan, wet: 0.14 }) || ok;
+    else if (kind === "wood") ok = play(pick(["wood_a", "wood_b", "wood_c"] as const), { rate: r(), gain: 1 * near, pan, wet: 0.12 }) || ok;
+    else if (kind === "metal") ok = play(pick(["metal_a", "metal_b", "metal_c"] as const), { rate: r() * 0.9, gain: 0.85 * near, pan, wet: 0.18 }) || ok;
+    else {
+      play(pick(["slice_a", "slice_b", "slice_c"] as const), { rate: 0.75, gain: 0.4 * near, pan, wet: 0.2 });
+      vol = near; synthPan = pan;
+      noise(0.14, "highpass", 2800, 0.25, 2, 2); tone(880, 0.16, 0.12, "sawtooth", 140); tone(60, 0.18, 0.3, "sine", 35);
+      vol = 1; synthPan = 0;
+    }
+    if (heft > 1.05 || kind === "wood" || kind === "metal") play("thud_heavy", { rate: 1 / heft, gain: (heft > 1.05 ? 0.55 : 0.35) * near, pan, wet: 0.08 });
+    if (!ok) { vol = near; noise(0.1, "lowpass", 600, 0.5, 2); tone(95, 0.12, 0.4, "sine", 50); vol = 1; }
   },
   /** Arma blanca cortando el aire (`heavy` > 1 = arma más pesada, suena más grave). */
   swing: (where?: Where, heavy = 1) => {

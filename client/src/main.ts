@@ -201,7 +201,8 @@ async function connect(name: string) {
   room.onMessage("swing", (m: SwingMsg) => {
     const o = remoteBuffer.length ? remoteBuffer[remoteBuffer.length - 1].others.get(m.id) : undefined;
     const where = o ? soundAt(o[1], o[3]) : { distance: 20, pan: 0 };
-    if (where.distance < 25) { if (m.hit) sfx.thud(where); else sfx.swing(where); }
+    const mel = meleeOf(roster.get(m.id)?.loadout?.[2]);
+    if (where.distance < 25) { if (m.hit) sfx.meleeImpact(mel.kind, mel.heft, where); else sfx.meleeSwing(mel.kind, mel.heft, where); }
   });
   room.onMessage("kill", onKill);
   room.onMessage("hit", onHit);
@@ -281,6 +282,12 @@ function onRoster(r: RosterMsg) {
   for (const p of r.players) roster.set(p.id, p);
   for (const id of world.avatarIds()) if (!roster.has(id)) world.removeAvatar(id);
   renderScoreboard();
+}
+
+/** Material y peso de un arma blanca (para su sonido). */
+function meleeOf(id: string | undefined) {
+  const m = weaponModel(id ?? "");
+  return { kind: m?.meleeKind ?? "blade", heft: m?.melee === "heavy" ? 1.18 : m?.melee === "light" ? 0.88 : 1 };
 }
 
 /** Distancia y dirección (izquierda/derecha) de un sonido respecto a donde miro. */
@@ -366,6 +373,8 @@ function onHit(h: HitMsg) {
   const hm = $("hitmarker");
   hm.classList.toggle("head", h.headshot);
   flash("hitmarker", 110);
+  // golpe de arma blanca: se oye el objeto contra el cuerpo (hoja, madera, metal o energía)
+  if (slotStats[me.weapon]?.meleeRange > 0) { const mel = meleeOf(loadout[me.weapon]); sfx.meleeImpact(mel.kind, mel.heft); }
   if (h.kill) sfx.kill();
   else sfx.hit(h.headshot, h.damage);
   world.damageNumber(h.victim, h.damage, h.headshot, h.kill);
@@ -543,8 +552,8 @@ function predictLocalFire(keys: number) {
     if (!trigger || localFireCooldown > 0 || me.switching) return;
     localFireCooldown = w.fireIntervalTicks;
     world.swing(w.fireIntervalTicks * DT);
-    const heft = weaponModel(loadout[me.weapon])?.melee;
-    sfx.swing(undefined, heft === "heavy" ? 1.15 : heft === "light" ? 0.88 : 1);
+    const mel = meleeOf(loadout[me.weapon]);
+    sfx.meleeSwing(mel.kind, mel.heft);
     shake = Math.min(0.05, shake + 0.006);
     return;
   }

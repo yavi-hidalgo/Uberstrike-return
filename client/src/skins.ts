@@ -152,6 +152,7 @@ const find = (root: THREE.Object3D, re: RegExp, not?: RegExp): THREE.Bone | null
  *  - grip2: segunda mano en armas blancas largas.
  */
 export function gripPoints(o: THREE.Object3D, kind: WeaponHold) {
+  if (kind === "melee") return gripFromPoints(surfacePoints(o).all, kind);
   o.updateMatrixWorld(true);
   const pts: THREE.Vector3[] = [];
   o.traverse((c) => {
@@ -164,18 +165,141 @@ export function gripPoints(o: THREE.Object3D, kind: WeaponHold) {
   return gripFromPoints(pts, kind);
 }
 
+/**
+ * Vértices del modelo (en coordenadas del mundo) más puntos a lo largo de las aristas largas: un mango
+ * cilíndrico de pocos polígonos sólo tiene vértices en sus extremos, y sin estos puntos su tramo
+ * central parecería vacío.
+ */
+function surfacePoints(o: THREE.Object3D, budget = 8000) {
+  o.updateMatrixWorld(true);
+  const meshes: THREE.Mesh[] = [];
+  o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh && m.geometry.getAttribute("position")) meshes.push(m); });
+  const pts: THREE.Vector3[] = [];
+  for (const m of meshes) {
+    const pos = m.geometry.getAttribute("position");
+    const step = Math.max(1, Math.floor(pos.count / budget));
+    for (let i = 0; i < pos.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld));
+  }
+  const verts = pts.length;
+  const seg = new THREE.Box3().setFromPoints(pts).getSize(new THREE.Vector3()).length() / 50;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const along = (p: THREE.Vector3, q: THREE.Vector3) => {
+    const d = p.distanceTo(q);
+    if (d <= seg) return;
+    const n = Math.min(40, Math.ceil(d / seg));
+    for (let j = 1; j < n; j++) pts.push(p.clone().lerp(q, j / n));
+  };
+  for (const m of meshes) {
+    const pos = m.geometry.getAttribute("position"), idx = m.geometry.index;
+    const tris = Math.floor((idx ? idx.count : pos.count) / 3);
+    const at = (k: number) => (idx ? idx.getX(k) : k);
+    for (let t = 0; t < tris; t++) {
+      a.fromBufferAttribute(pos, at(3 * t)).applyMatrix4(m.matrixWorld);
+      b.fromBufferAttribute(pos, at(3 * t + 1)).applyMatrix4(m.matrixWorld);
+      c.fromBufferAttribute(pos, at(3 * t + 2)).applyMatrix4(m.matrixWorld);
+      along(a, b); along(b, c); along(c, a);
+    }
+  }
+  return { verts: pts.slice(0, verts), all: pts };
+}
+
+/**
+ * Geometría de un arma blanca (punta hacia -Z, mango hacia +Z): empuñadura, largo y hacia qué lado
+ * está el filo (vector perpendicular a la hoja). En hojas curvas (katana, khopesh) el filo es el lado
+ * convexo; en hojas rectas, el lado más delgado (el lomo es más grueso). Si da igual (doble filo o
+ * arma roma), devuelve el lado ancho de la hoja.
+ */
+export function meleeGeometry(o: THREE.Object3D) {
+  const { verts: pts, all } = surfacePoints(o);
+  const box = new THREE.Box3().setFromPoints(pts), L = box.max.z - box.min.z;
+  const grip = gripFromPoints(all, "melee").grip;
+  const { hilt, guardR } = hiltLength(all, grip, L);
+  // la hoja: desde un poco antes de la empuñadura hasta casi la punta
+  const blade = pts.filter((p) => p.z < grip.z - 0.12 * L && p.z > box.min.z + 0.03 * L);
+  const edge = new THREE.Vector3(0, 1, 0);
+  if (blade.length < 20) return { grip, edge, length: L, hilt, guardR };
+  // ejes de la sección (plano XY): el ancho de la hoja y su grosor
+  let cx = 0, cy = 0;
+  for (const p of blade) { cx += p.x; cy += p.y; }
+  cx /= blade.length; cy /= blade.length;
+  let xx = 0, xy = 0, yy = 0;
+  for (const p of blade) { const x = p.x - cx, y = p.y - cy; xx += x * x; xy += x * y; yy += y * y; }
+  const ang = 0.5 * Math.atan2(2 * xy, xx - yy);
+  const w = new THREE.Vector3(Math.cos(ang), Math.sin(ang), 0); // ancho
+  const t = new THREE.Vector3(-w.y, w.x, 0); // grosor
+  // centro de cada tramo a lo largo del ancho: una hoja curva se aparta de la cuerda hacia el lado convexo
+  const N = 14, z0 = Math.min(...blade.map((p) => p.z)), z1 = Math.max(...blade.map((p) => p.z));
+  const lo = new Array<number>(N).fill(Infinity), hi = new Array<number>(N).fill(-Infinity);
+  for (const p of blade) {
+    const k = Math.min(N - 1, Math.max(0, Math.floor(((p.z - z0) / (z1 - z0 || 1)) * N)));
+    const u = p.x * w.x + p.y * w.y;
+    lo[k] = Math.min(lo[k], u); hi[k] = Math.max(hi[k], u);
+  }
+  const mid = lo.map((v, k) => (Number.isFinite(v) ? (v + hi[k]) / 2 : NaN));
+  const ks = mid.map((v, k) => [k, v] as const).filter(([, v]) => !Number.isNaN(v));
+  if (ks.length >= 4) {
+    const [k0, v0] = ks[0], [k1, v1] = ks[ks.length - 1];
+    let dev = 0, n = 0;
+    for (const [k, v] of ks.slice(1, -1)) { dev += v - (v0 + ((v1 - v0) * (k - k0)) / (k1 - k0)); n++; }
+    dev /= Math.max(1, n);
+    if (Math.abs(dev) > 0.01 * L) return { grip, edge: w.clone().multiplyScalar(Math.sign(dev)), length: L, hilt, guardR };
+  }
+  // hoja recta: el lado más delgado es el filo
+  let thickPos = 0, nPos = 0, thickNeg = 0, nNeg = 0;
+  for (const p of blade) {
+    const k = Math.min(N - 1, Math.max(0, Math.floor(((p.z - z0) / (z1 - z0 || 1)) * N)));
+    const half = (hi[k] - lo[k]) / 2 || 1, u = (p.x * w.x + p.y * w.y - mid[k]) / half;
+    const th = Math.abs(p.x * t.x + p.y * t.y - (cx * t.x + cy * t.y));
+    if (u > 0.55) { thickPos += th; nPos++; } else if (u < -0.55) { thickNeg += th; nNeg++; }
+  }
+  const tp = thickPos / Math.max(1, nPos), tn = thickNeg / Math.max(1, nNeg);
+  if (Math.abs(tp - tn) > 0.12 * Math.max(tp, tn)) edge.copy(w).multiplyScalar(tp < tn ? 1 : -1);
+  else edge.copy(w);
+  return { grip, edge, length: L, hilt, guardR };
+}
+
+/**
+ * Distancia desde la mano hasta donde termina el mango (la guarda, o donde el arma se ensancha) a lo
+ * largo del arma, para que en primera persona esa parte nunca entre en la vista.
+ */
+function hiltLength(pts: THREE.Vector3[], grip: THREE.Vector3, L: number) {
+  const N = 80, bin = L / N, zTop = grip.z + 0.05 * L;
+  const lo = Array.from({ length: N }, () => [Infinity, Infinity]), hi = Array.from({ length: N }, () => [-Infinity, -Infinity]);
+  for (const p of pts) {
+    const k = Math.floor((zTop - p.z) / bin);
+    if (k < 0 || k >= N) continue;
+    lo[k][0] = Math.min(lo[k][0], p.x); lo[k][1] = Math.min(lo[k][1], p.y);
+    hi[k][0] = Math.max(hi[k][0], p.x); hi[k][1] = Math.max(hi[k][1], p.y);
+  }
+  const span = lo.map((l, k) => (Number.isFinite(l[0]) ? Math.max(hi[k][0] - l[0], hi[k][1] - l[1]) : 0));
+  // ancho del mango alrededor de la mano (tramos con vértices dentro de ±5 % del largo)
+  const near = span.slice(0, Math.ceil((0.1 * L) / bin)).filter((v) => v > 0).sort((a, b) => a - b);
+  const gripW = near.length ? near[Math.floor(near.length / 2)] : 0.04;
+  const start = Math.ceil((0.05 * L) / bin);
+  let end = Math.floor((0.4 * L) / bin);
+  for (let k = start; k < N && k <= end; k++) if (span[k] > 1.7 * gripW) { end = k; break; }
+  const d = (end + 1) * bin - 0.05 * L; // desde la mano hasta el borde lejano de ese tramo
+  // radio de la guarda (lo más ancho del mango), para el margen con el borde de la pantalla
+  const guardR = Math.min(0.2, Math.max(0.03, Math.max(...span.slice(0, end + 1)) / 2));
+  return { hilt: Math.min(0.55, Math.max(0.16, d + 0.04 * L)), guardR };
+}
+
 /** Lo mismo que `gripPoints`, a partir de los vértices del arma (cañón hacia -Z, arriba +Y). */
 export function gripFromPoints(pts: THREE.Vector3[], kind: WeaponHold) {
   const box = new THREE.Box3().setFromPoints(pts), size = box.getSize(new THREE.Vector3());
   const N = 40, low = new Array<number>(N).fill(Infinity), high = new Array<number>(N).fill(-Infinity);
+  const left = new Array<number>(N).fill(Infinity), right = new Array<number>(N).fill(-Infinity);
   for (const v of pts) {
     const k = Math.min(N - 1, Math.max(0, Math.floor(((v.z - box.min.z) / size.z) * N)));
     if (v.y < low[k]) low[k] = v.y;
     if (v.y > high[k]) high[k] = v.y;
+    if (v.x < left[k]) left[k] = v.x;
+    if (v.x > right[k]) right[k] = v.x;
   }
   const zAt = (k: number) => box.min.z + ((k + 0.5) / N) * size.z; // k = 0 en la boca del cañón
   const kOf = (f: number) => Math.min(N - 1, Math.max(0, Math.floor(f * N)));
   const midY = (k: number) => (Number.isFinite(low[k]) ? (low[k] + high[k]) / 2 : box.min.y + size.y / 2);
+  const midX = (k: number) => (Number.isFinite(left[k]) ? (left[k] + right[k]) / 2 : 0);
   const lowest = (f0: number, f1: number) => {
     let best = -1;
     for (let k = kOf(f0); k <= kOf(f1); k++) if (Number.isFinite(low[k]) && (best < 0 || low[k] < low[best] - 1e-4)) best = k;
@@ -185,9 +309,10 @@ export function gripFromPoints(pts: THREE.Vector3[], kind: WeaponHold) {
   if (kind === "melee") {
     const long = size.z > 0.75;
     const kG = kOf(1 - (long ? 0.17 : Math.max(0.06, 0.1 * size.z)) / size.z);
-    const grip = new THREE.Vector3(0, midY(kG), zAt(kG));
+    // en el centro del mango (algunas armas no están centradas en X: el mango va de lado)
+    const grip = new THREE.Vector3(midX(kG), midY(kG), zAt(kG));
     const kG2 = kOf(1 - 0.06 / size.z);
-    return { grip, grip2: long ? new THREE.Vector3(0, midY(kG2), zAt(kG2)) : null, fore: null, stock: grip };
+    return { grip, grip2: long ? new THREE.Vector3(midX(kG2), midY(kG2), zAt(kG2)) : null, fore: null, stock: grip };
   }
   if (kind === "pistol") {
     const kG = lowest(0.55, 0.97);
@@ -381,6 +506,8 @@ export function buildCharacter(skinId: string): Character | null {
   type PoseSnap = { q: Map<THREE.Bone, THREE.Quaternion>; gp: THREE.Vector3; gq: THREE.Quaternion };
   let held: THREE.Group | null = null;
   let snaps: { carry: PoseSnap; aim: PoseSnap } | null = null;
+  /** Lado del filo del arma blanca en la mano (en su propio espacio). */
+  let meleeEdge: THREE.Vector3 | null = null;
   let aimT = 0, aimUntil = 0, clock = 0;
 
   /** Base ortonormal del arma: cañón hacia `fw`, parte de arriba lo más cerca posible de `upHint`. */
@@ -415,6 +542,16 @@ export function buildCharacter(skinId: string): Character | null {
       o.position.copy(pts.grip).negate();
       g.position.set(-0.17, shoulder.y - 0.42, 0.27);
       g.quaternion.setFromEuler(new THREE.Euler(-1.0, 0.12, 0, "YXZ")); // la hoja hacia arriba y adelante
+      if (meleeEdge) {
+        // girar el arma sobre su hoja para que el filo mire al frente (golpea con el filo, no con el lomo)
+        const full = g.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(Y, Math.PI));
+        const blade = new THREE.Vector3(0, 0, -1).applyQuaternion(full);
+        const e = meleeEdge.clone().applyQuaternion(full);
+        e.addScaledVector(blade, -e.dot(blade)).normalize();
+        const want = Z.clone().addScaledVector(blade, -blade.dot(Z)).normalize();
+        const ang = Math.atan2(blade.dot(e.clone().cross(want)), e.dot(want));
+        g.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(blade, ang));
+      }
     }
     inner.updateMatrixWorld(true);
     const toModel = (p: THREE.Vector3) => inner.worldToLocal(o.localToWorld(p.clone())); // p en el espacio propio del arma
@@ -494,6 +631,7 @@ export function buildCharacter(skinId: string): Character | null {
     resetPose();
     if (!o) { defaultArms(); return; }
     const pts = gripPoints(o, kind);
+    meleeEdge = kind === "melee" ? meleeGeometry(o).edge : null;
     if (gunAlign && action && mixer && gunNode && kind === "rifle") {
       // animación de artista: el arma ocupa el lugar exacto del rifle original y sigue a las manos
       const g = new THREE.Group();
