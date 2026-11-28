@@ -12,7 +12,7 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { Environment, MOON_DIR } from "./environment";
 import { buildMap, buildPickups, type MapVisuals } from "./mapbuilder";
 import { ShotEffects, ViewWeapon } from "./weapon";
-import { Avatar, loadAvatarModel, loadSoldierModels } from "./avatars";
+import { Avatar, loadAvatarModel } from "./avatars";
 import { buildProps, hasModel, loadPropModels } from "./props";
 import { weaponAnchors, weaponObject } from "./weaponmodels";
 import { ArmsViewModel } from "./fparms";
@@ -188,11 +188,6 @@ export class World {
     const base = import.meta.env.BASE_URL;
     await Promise.all([
       loadAvatarModel(`${base}assets/models/robot.glb`).catch((e) => console.warn("Sin modelo de jugador; se usan cápsulas.", e)),
-      loadSoldierModels([
-        { url: `${base}assets/soldiers/swat.glb`, hasGun: true },
-        { url: `${base}assets/soldiers/operator.glb`, hasGun: true },
-        { url: `${base}assets/soldiers/tactical.glb`, hasGun: false },
-      ]),
       loadPropModels(),
       this.mapDef.model && !this.mapDef.indoor
         ? this.loadSunsetSky(`${base}assets/hdri/industrial_sunset_02_puresky_2k.hdr`)

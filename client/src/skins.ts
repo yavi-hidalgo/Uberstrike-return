@@ -21,6 +21,9 @@ const skins = new Map<string, Promise<SkinTemplate | null>>();
 const ready = new Map<string, SkinTemplate>();
 const gearCache = new Map<string, Promise<THREE.Object3D | null>>();
 
+/** Skins que son los soldados con equipo modelado (están en assets/soldiers). */
+const SOLDIER_SKINS = ["swat", "operator", "tactical"];
+
 /** Ajustes por skin: `yaw` si el modelo no mira hacia +Z; `noGear` para piezas que no le calzan. */
 const SKIN_FIX: Record<string, { yaw?: number; head?: number; chest?: number }> = {};
 
@@ -42,7 +45,9 @@ const GEAR_FIX: Record<string, { yaw?: number; scale?: number; dy?: number; dz?:
 export function loadSkin(id: string): Promise<SkinTemplate | null> {
   let p = skins.get(id);
   if (!p) {
-    p = loader.loadAsync(`${import.meta.env.BASE_URL}assets/skins/${id}.glb`).then((gltf) => {
+    // los soldados (SWAT, Operador, Soldado táctico) viven en su propia carpeta
+    const dir = SOLDIER_SKINS.includes(id) ? "soldiers" : "skins";
+    p = loader.loadAsync(`${import.meta.env.BASE_URL}assets/${dir}/${id}.glb`).then((gltf) => {
       // Tamaño en la pose de descanso, con los huesos aplicados
       gltf.scene.updateMatrixWorld(true);
       const box = new THREE.Box3();
@@ -213,7 +218,7 @@ export function buildCharacter(skinId: string): Character | null {
   const depth = (b: THREE.Object3D) => { let d = 0; for (let p = b.parent; p; p = p.parent) d++; return d; };
   const [upR, upL] = side(/(Left|Right)Arm$|(Left|Right)Arm_|[LR]_Arm|arm1[LR]|upper_?arm/i);
   const [foreR, foreL] = side(/ForeArm|[LR]_Elbow|arm2[LR]|lower_?arm|forearm/i);
-  const [handR, handL] = side(/(Left|Right)Hand(?!.*(Thumb|Index|Middle|Ring|Pinky))|[LR]_Wrist|^wrist[LR]|hand[LR]/i);
+  const [handR, handL] = side(/(Left|Right)Hand(?!.*(Thumb|Index|Middle|Ring|Pinky))|[LR]_Hand(?!.*(Thumb|Index|Mid|Ring|Pinky))|[LR]_Wrist|^wrist[LR]|hand[LR]/i);
   const [thighR, thighL] = side(/UpLeg|[LR]_Thigh|leg1[LR]|thigh/i);
   const [calfR, calfL] = side(/(Left|Right)Leg|[LR]_Knee|leg2[LR]|calf|shin/i);
   const head = find(model, /head/i, SEG);
@@ -246,7 +251,7 @@ export function buildCharacter(skinId: string): Character | null {
     const res: Fingers = {};
     if (!hand) return res;
     for (const c of hand.children) {
-      const m = /thumb|index|middle|ring|pinky/i.exec(c.name);
+      const m = /thumb|index|middle|mid|ring|pinky/i.exec(c.name);
       if (!(c as THREE.Bone).isBone || !m) continue;
       const chain: THREE.Bone[] = [];
       let b: THREE.Object3D | undefined = c;
@@ -254,7 +259,8 @@ export function buildCharacter(skinId: string): Character | null {
         chain.push(b as THREE.Bone);
         b = b.children.find((x) => (x as THREE.Bone).isBone && !SEG.test(x.name));
       }
-      res[m[0].toLowerCase() as keyof Fingers] = chain;
+      const key = m[0].toLowerCase() === "mid" ? "middle" : m[0].toLowerCase();
+      res[key as keyof Fingers] = chain;
     }
     return res;
   };

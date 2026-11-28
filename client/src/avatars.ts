@@ -6,7 +6,7 @@ import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
 import { MAX_HP, PLAYER_HEIGHT } from "../../shared/src/constants";
 import { softSprite } from "./textures";
-import { LEGACY_SKINS, validLook, type Look } from "../../shared/src/gear";
+import { validLook, type Look } from "../../shared/src/gear";
 import { weaponModel } from "../../shared/src/weapons";
 import { buildCharacter, loadSkin, type Character, type WeaponHold } from "./skins";
 
@@ -113,7 +113,8 @@ export class Avatar {
     this.name = name;
     const look = lookIn ?? validLook();
     const color = new THREE.Color(PLAYER_COLORS[id % PLAYER_COLORS.length]);
-    const legacy = look ? LEGACY_SKINS.indexOf(look.skin) : id % 3;
+    // todas las skins (también los soldados) usan el esqueleto posado por código que sujeta el arma
+    const legacy = -1;
     const soldier = legacy >= 0 ? soldiers[legacy] : undefined;
     if (look && legacy < 0) {
       // Skin nueva: se carga en segundo plano y aparece al estar lista
