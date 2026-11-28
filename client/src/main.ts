@@ -297,6 +297,7 @@ function onRemoteShot(s: ShotMsg) {
   const hitWall = hit.t < dist + 0.04 && hit.t > dist - 0.1;
   const fx = weaponFx(roster.get(s.id)?.loadout?.[s.slot ?? 0] ?? DEFAULT_PRIMARY);
   world.remoteShot(from, to, hitWall ? new THREE.Vector3(...hit.normal) : null, hitWall ? hit.kind : null, fx);
+  world.getAvatar(s.id)?.aimPulse();
   const d = Math.hypot(s.from[0] - pred.x, s.from[2] - pred.z);
   // Varios perdigones llegan en el mismo instante: el sonido se oye una sola vez
   const now = performance.now();
@@ -320,6 +321,7 @@ function onProjectile(m: ProjMsg) {
   const from = new THREE.Vector3(...m.from), dir = new THREE.Vector3(...m.dir);
   const hit = rayMapHit(from.x, from.y, from.z, dir.x, dir.y, dir.z, 200, boxes);
   world.spawnProjectile(m.id, from, dir, m.speed, m.gravity, hit.t, fx, false);
+  world.getAvatar(m.owner)?.aimPulse();
   sfx.weapon(fx, soundAt(m.from[0], m.from[2]));
 }
 

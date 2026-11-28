@@ -102,6 +102,8 @@ export interface Character {
    * (o junto a la derecha en pistolas y armas blancas). El arma debe venir con el cañón hacia -Z.
    */
   holdWeapon(o: THREE.Object3D | null, kind: WeaponHold): void;
+  /** Pasa a la postura de tiro durante unos segundos (por ejemplo, al disparar). */
+  aim(seconds?: number): void;
 }
 
 export type WeaponHold = "rifle" | "pistol" | "melee";
@@ -324,45 +326,54 @@ export function buildCharacter(skinId: string): Character | null {
   defaultArms();
   body.updateMatrixWorld(true);
 
+  // ---- Arma en las manos: dos posturas que se mezclan ----
+  //  - "carry": de pie y relajado, el arma cruzada delante del cuerpo (culata junto a la cadera derecha,
+  //    mano izquierda en el guardamanos frente al pecho, cañón hacia delante y a la izquierda);
+  //  - "aim": al disparar, culata al hombro y torso de perfil.
+  type PoseSnap = { q: Map<THREE.Bone, THREE.Quaternion>; gp: THREE.Vector3; gq: THREE.Quaternion };
   let held: THREE.Group | null = null;
-  const holdWeapon = (o: THREE.Object3D | null, kind: WeaponHold) => {
-    held?.removeFromParent();
-    held = null;
+  let snaps: { carry: PoseSnap; aim: PoseSnap } | null = null;
+  let aimT = 0, aimUntil = 0, clock = 0;
+
+  /** Base ortonormal del arma: cañón hacia `fw`, parte de arriba lo más cerca posible de `upHint`. */
+  const weaponQuat = (fw: THREE.Vector3, upHint: THREE.Vector3) => {
+    const f = fw.clone().normalize();
+    const u = upHint.clone().addScaledVector(f, -upHint.dot(f)).normalize();
+    return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(u.clone().cross(f), u, f));
+  };
+
+  /** Coloca el arma y resuelve brazos, manos, dedos, torso y cabeza para una postura. */
+  const solvePose = (o: THREE.Object3D, g: THREE.Group, pts: ReturnType<typeof gripPoints>, kind: WeaponHold, mode: "carry" | "aim"): PoseSnap => {
     resetPose();
-    if (!o) { defaultArms(); return; }
-    const pts = gripPoints(o, kind);
-    // torso de perfil (hombro izquierdo adelante): así la mano izquierda llega al guardamanos
-    const twist = kind === "rifle" ? -0.3 : kind === "melee" ? -0.15 : 0;
+    const carry = mode === "carry";
+    // torso de perfil al apuntar con rifle (el hombro izquierdo adelante); de frente al llevarla
+    const twist = carry ? (kind === "rifle" ? -0.08 : 0) : kind === "rifle" ? -0.3 : kind === "melee" ? -0.15 : 0;
     turnBone(chest, Y, twist);
-    const g = new THREE.Group();
-    const turn = new THREE.Group();
-    turn.rotation.y = Math.PI; // el cañón pasa de -Z a +Z (el frente del modelo)
-    o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } });
-    turn.add(o);
-    g.add(turn);
-    inner.add(g);
-    held = g;
     const shoulder = upR ? wp(upR) : new THREE.Vector3(-0.19, 1.42, 0);
-    if (kind === "rifle") {
-      // culata apoyada delante del hombro derecho y el arma un poco baja ("lista")
+    if (kind === "rifle" && carry) {
+      // empuñadura junto a la cadera derecha, el arma cruzada en diagonal hacia arriba y a la izquierda
+      o.position.copy(pts.grip).negate();
+      g.position.set(shoulder.x + 0.05, shoulder.y - 0.43, 0.2);
+      g.quaternion.copy(weaponQuat(new THREE.Vector3(0.62, 0.3, 0.73), new THREE.Vector3(-0.25, 1, -0.15)));
+    } else if (kind === "rifle") {
       o.position.copy(pts.stock).negate();
       g.position.copy(shoulder).add(new THREE.Vector3(0.07, -0.07, 0.15));
-      g.rotation.set(0.07, 0.06, 0, "YXZ");
+      g.quaternion.setFromEuler(new THREE.Euler(0.07, 0.06, 0, "YXZ"));
     } else if (kind === "pistol") {
       o.position.copy(pts.grip).negate();
-      g.position.set(-0.05, shoulder.y - 0.25, 0.42);
-      g.rotation.set(0.12, 0.05, 0, "YXZ");
+      if (carry) { g.position.set(-0.06, shoulder.y - 0.4, 0.3); g.quaternion.setFromEuler(new THREE.Euler(0.55, 0.12, 0, "YXZ")); }
+      else { g.position.set(-0.05, shoulder.y - 0.25, 0.42); g.quaternion.setFromEuler(new THREE.Euler(0.12, 0.05, 0, "YXZ")); }
     } else {
       o.position.copy(pts.grip).negate();
       g.position.set(-0.17, shoulder.y - 0.42, 0.27);
-      g.rotation.set(-1.0, 0.12, 0, "YXZ"); // la hoja hacia arriba y adelante
+      g.quaternion.setFromEuler(new THREE.Euler(-1.0, 0.12, 0, "YXZ")); // la hoja hacia arriba y adelante
     }
     inner.updateMatrixWorld(true);
     const toModel = (p: THREE.Vector3) => inner.worldToLocal(o.localToWorld(p.clone())); // p en el espacio propio del arma
     // ejes del arma en el espacio del modelo
     const fw = Z.clone().applyQuaternion(g.quaternion);
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(g.quaternion);
-    const rw = fw.clone().cross(up).normalize(); // a la derecha del personaje
+    const rw = fw.clone().cross(up).normalize(); // a la derecha del arma
     const lw = rw.clone().negate();
     const v = (a: THREE.Vector3, ka: number, b: THREE.Vector3, kb: number, c?: THREE.Vector3, kc = 0) =>
       a.clone().multiplyScalar(ka).addScaledVector(b, kb).addScaledVector(c ?? a, c ? kc : 0).normalize();
@@ -371,7 +382,8 @@ export function buildCharacter(skinId: string): Character | null {
     const fR = kind === "melee" ? v(Z.clone().addScaledVector(fw, -Z.dot(fw)), 1, lw, 0.3) : v(fw, 0.88, up, -0.42, lw, 0.15);
     const sR = kind === "melee" ? fw.clone().negate() : v(up, -0.95, fw, -0.3);
     const palmR = fR.clone().cross(sR).normalize();
-    reach(upR, foreR, handR, lenR, gripM.clone().addScaledVector(fR, -0.08).addScaledVector(palmR, -0.03), kind === "rifle" ? new THREE.Vector3(-0.5, -1, -0.05) : new THREE.Vector3(-0.6, -1, -0.2));
+    const poleR = carry ? new THREE.Vector3(-0.45, -1, -0.55) : kind === "rifle" ? new THREE.Vector3(-0.5, -1, -0.05) : new THREE.Vector3(-0.6, -1, -0.2);
+    reach(upR, foreR, handR, lenR, gripM.clone().addScaledVector(fR, -0.08).addScaledVector(palmR, -0.03), poleR);
     orientHand(handR, fingR, fR, sR);
     curl(fingR, palmR, kind === "melee"
       ? { thumb: [0.5, 0.45, 0.3], rest: [1.35, 1.45, 1.0] }
@@ -382,6 +394,7 @@ export function buildCharacter(skinId: string): Character | null {
       // bajo el guardamanos, con la palma hacia arriba
       fL = v(fw, 0.8, rw, 0.55, up, 0.15); sL = fw.clone().negate();
       at = toModel(pts.fore!);
+      if (carry) poleL = new THREE.Vector3(0.6, -1, -0.3);
       // si el brazo no llega, la mano se desliza por el guardamanos hacia la empuñadura
       if (upL && lenL[0]) {
         const sh = wp(upL), max = (lenL[0] + lenL[1]) * 0.94;
@@ -392,7 +405,7 @@ export function buildCharacter(skinId: string): Character | null {
       // envuelve la mano derecha desde la izquierda
       fL = v(fw, 0.6, rw, 0.6, up, -0.35); sL = v(up, -0.9, fw, -0.3);
       at = gripM.clone().addScaledVector(lw, 0.035).addScaledVector(up, -0.025);
-      poleL = new THREE.Vector3(0.6, -1, 0);
+      poleL = new THREE.Vector3(0.6, -1, carry ? -0.3 : 0);
     } else {
       fL = v(Z.clone().addScaledVector(fw, -Z.dot(fw)), 1, rw, 0.3); sL = fw.clone().negate();
       if (pts.grip2) at = toModel(pts.grip2);
@@ -408,11 +421,56 @@ export function buildCharacter(skinId: string): Character | null {
       reach(upL, foreL, handL, lenL, new THREE.Vector3(0.24, shoulder.y - 0.55, 0.1), new THREE.Vector3(0.3, -0.2, -1));
       curl(fingL, new THREE.Vector3(-1, 0, 0.3).normalize(), { thumb: [0.2, 0.2, 0.1], rest: [0.45, 0.55, 0.4] });
     }
-    // la cabeza acompaña: mira un poco hacia abajo y, con el rifle, se apoya hacia la culata
-    turnBone(head, Y, -twist); // la cabeza sigue mirando al frente aunque el torso gire
-    turnBone(head, X, kind === "rifle" ? 0.13 : 0.08);
-    if (kind === "rifle") turnBone(head, Z, 0.07);
+    // la cabeza sigue mirando al frente aunque el torso gire; al apuntar baja hacia la mira
+    turnBone(head, Y, -twist);
+    turnBone(head, X, carry ? 0.04 : kind === "rifle" ? 0.13 : 0.08);
+    if (!carry && kind === "rifle") turnBone(head, Z, 0.07);
+    return { q: new Map(posed.map((b) => [b, b.quaternion.clone()])), gp: g.position.clone(), gq: g.quaternion.clone() };
   };
+
+  const applyBlend = (t: number) => {
+    if (!snaps || !held) return;
+    const { carry, aim } = snaps;
+    for (const b of posed) {
+      const a = carry.q.get(b), c = aim.q.get(b);
+      if (a && c) b.quaternion.slerpQuaternions(a, c, t);
+    }
+    held.position.lerpVectors(carry.gp, aim.gp, t);
+    held.quaternion.slerpQuaternions(carry.gq, aim.gq, t);
+  };
+
+  const holdWeapon = (o: THREE.Object3D | null, kind: WeaponHold) => {
+    held?.removeFromParent();
+    held = null; snaps = null;
+    resetPose();
+    if (!o) { defaultArms(); return; }
+    const pts = gripPoints(o, kind);
+    const g = new THREE.Group();
+    const turn = new THREE.Group();
+    turn.rotation.y = Math.PI; // el cañón pasa de -Z a +Z (el frente del modelo)
+    o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } });
+    turn.add(o);
+    g.add(turn);
+    inner.add(g);
+    held = g;
+    const aimSnap = solvePose(o, g, pts, kind, "aim");
+    const carrySnap = solvePose(o, g, pts, kind, "carry");
+    // las dos posturas deben colocar el arma igual respecto al modelo (misma referencia)
+    const oCarry = o.position.clone();
+    snaps = { carry: carrySnap, aim: aimSnap };
+    // el arma se ancla de forma distinta en cada postura: se expresa todo respecto a la misma referencia
+    if (kind === "rifle") {
+      // al apuntar se usó la culata como ancla; se convierte a la referencia de la empuñadura
+      const shift = pts.grip.clone().sub(pts.stock).applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0))).applyQuaternion(aimSnap.gq);
+      aimSnap.gp.add(shift);
+    }
+    o.position.copy(oCarry);
+    aimT = 0;
+    applyBlend(0);
+  };
+
+  /** El personaje apunta durante `seconds` (luego vuelve a la postura relajada). */
+  const aimFor = (seconds = 1.6) => { aimUntil = clock + seconds; };
 
   // ---- Piernas: giro alrededor del eje X del modelo sobre la pose de descanso ----
   const legs = [thighR, thighL].map((thigh, i) => {
@@ -428,6 +486,14 @@ export function buildCharacter(skinId: string): Character | null {
   const qA = new THREE.Quaternion(), qB = new THREE.Quaternion(), qC = new THREE.Quaternion();
   let stride = Math.random() * 2;
   const update = (dt: number, speed: number, airborne: boolean) => {
+    clock += dt;
+    if (snaps) {
+      const target = clock < aimUntil ? 1 : 0;
+      if (Math.abs(target - aimT) > 1e-3) {
+        aimT += (target - aimT) * Math.min(1, dt * (target > aimT ? 12 : 4));
+        applyBlend(aimT);
+      }
+    }
     const sp = Math.min(speed, 9);
     stride += dt * (2 + sp * 1.1);
     const amp = airborne ? 0 : Math.min(0.62, sp * 0.085);
@@ -508,5 +574,5 @@ export function buildCharacter(skinId: string): Character | null {
     for (const h of made) if (h) holders.push(h);
   };
 
-  return { body, update, setGear, holdWeapon };
+  return { body, update, setGear, holdWeapon, aim: aimFor };
 }

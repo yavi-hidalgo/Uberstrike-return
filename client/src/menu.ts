@@ -162,7 +162,7 @@ class Preview {
       const char = this.mode === "character";
       if (!this.dragging) {
         // el personaje se balancea de tres cuartos mirando a la cámara; el arma gira entera
-        if (char) this.spin += (-0.5 + Math.sin(now / 2600) * 0.35 - this.spin) * Math.min(1, dt * 1.5);
+        if (char) this.spin += (0.45 + Math.sin(now / 2600) * 0.3 - this.spin) * Math.min(1, dt * 1.5);
         else this.spin += dt * 0.35;
       }
       this.pivot.visible = char;

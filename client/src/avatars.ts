@@ -245,6 +245,9 @@ export class Avatar {
     this.weaponHolder.add(o);
   }
 
+  /** Disparó: pasa un momento a la postura de tiro (culata al hombro). */
+  aimPulse() { this.char?.aim(1.8); }
+
   setName(name: string) {
     if (name === this.name) return;
     this.name = name;

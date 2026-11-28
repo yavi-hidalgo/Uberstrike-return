@@ -45,7 +45,8 @@ for (let i = 0; i < combos.length; i++) {
       const cat = weaponModel(id)?.category;
       if (w) ch.holdWeapon(w, cat === "melee" ? "melee" : cat === "pistol" ? "pistol" : "rifle");
     }
-    for (let j = 0; j < 20; j++) ch.update(t / 20, speed, false);
+    if (q.get("aim")) ch.aim(100); // postura de tiro (la que usan los rivales al disparar)
+    for (let j = 0; j < 20; j++) ch.update(q.get("aim") ? 0.05 : t / 20, speed, false);
     s.add(ch.body);
   }
   const x = (i % cols) * W * 2, y = Math.floor(i / cols) * H;
