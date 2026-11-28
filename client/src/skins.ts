@@ -112,6 +112,62 @@ const find = (root: THREE.Object3D, re: RegExp, not?: RegExp): THREE.Bone | null
   return f;
 };
 
+/**
+ * Puntos de agarre de un arma (en su propio espacio: cañón o punta hacia -Z), medidos sobre su malla:
+ *  - grip: empuñadura (la parte que sobresale hacia abajo detrás del cargador, o el mango);
+ *  - fore: guardamanos, donde va la mano izquierda;
+ *  - stock: final de la culata, que se apoya en el hombro;
+ *  - grip2: segunda mano en armas blancas largas.
+ */
+export function gripPoints(o: THREE.Object3D, kind: WeaponHold) {
+  o.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(o), size = box.getSize(new THREE.Vector3());
+  const N = 40, low = new Array<number>(N).fill(Infinity), high = new Array<number>(N).fill(-Infinity);
+  const v = new THREE.Vector3();
+  o.traverse((c) => {
+    const m = c as THREE.Mesh;
+    const pos = m.isMesh ? m.geometry.getAttribute("position") : null;
+    if (!pos) return;
+    const step = Math.max(1, Math.floor(pos.count / 6000));
+    for (let i = 0; i < pos.count; i += step) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const k = Math.min(N - 1, Math.max(0, Math.floor(((v.z - box.min.z) / size.z) * N)));
+      if (v.y < low[k]) low[k] = v.y;
+      if (v.y > high[k]) high[k] = v.y;
+    }
+  });
+  const zAt = (k: number) => box.min.z + ((k + 0.5) / N) * size.z; // k = 0 en la boca del cañón
+  const kOf = (f: number) => Math.min(N - 1, Math.max(0, Math.floor(f * N)));
+  const midY = (k: number) => (Number.isFinite(low[k]) ? (low[k] + high[k]) / 2 : box.min.y + size.y / 2);
+  const lowest = (f0: number, f1: number) => {
+    let best = -1;
+    for (let k = kOf(f0); k <= kOf(f1); k++) if (Number.isFinite(low[k]) && (best < 0 || low[k] < low[best] - 1e-4)) best = k;
+    return best < 0 ? kOf((f0 + f1) / 2) : best;
+  };
+  const body = box.min.y + size.y * 0.62; // altura del cajón del arma
+  if (kind === "melee") {
+    const long = size.z > 0.75;
+    const kG = kOf(1 - (long ? 0.17 : Math.max(0.06, 0.1 * size.z)) / size.z);
+    const grip = new THREE.Vector3(0, midY(kG), zAt(kG));
+    const kG2 = kOf(1 - 0.06 / size.z);
+    return { grip, grip2: long ? new THREE.Vector3(0, midY(kG2), zAt(kG2)) : null, fore: null, stock: grip };
+  }
+  if (kind === "pistol") {
+    const kG = lowest(0.55, 0.97);
+    const grip = new THREE.Vector3(0, (low[kG] + body) / 2, zAt(kG));
+    return { grip, grip2: null, fore: null, stock: grip };
+  }
+  // rifle: la empuñadura es lo más bajo entre el 55 % y el 86 % del largo (desde la boca)
+  const kG = lowest(0.55, 0.86);
+  const grip = new THREE.Vector3(0, (low[kG] + body) / 2, zAt(kG));
+  const kF = Math.max(kOf(0.12), kOf((grip.z - box.min.z - Math.min(0.36, size.z * 0.42)) / size.z));
+  const fore = new THREE.Vector3(0, (Number.isFinite(low[kF]) ? low[kF] : box.min.y + size.y * 0.4) + 0.012, zAt(kF));
+  let kS = N - 1;
+  while (kS > 0 && !Number.isFinite(low[kS])) kS--;
+  const stock = new THREE.Vector3(0, midY(kS), box.max.z - 0.01);
+  return { grip, grip2: null, fore, stock };
+}
+
 /** Construye un personaje con la skin dada (debe estar cargada con `loadSkin`). */
 export function buildCharacter(skinId: string): Character | null {
   const t = ready.get(skinId);
@@ -162,7 +218,7 @@ export function buildCharacter(skinId: string): Character | null {
   const chest = find(model, /Spine2|Spine_3|spine3/i) ?? find(model, /Spine1|Spine_2|spine2/i) ?? find(model, /spine|chest/i);
 
   /** Lleva un hueso a apuntar hacia `dir` (espacio del modelo), girando lo mínimo desde donde está. */
-  const aim = (bone: THREE.Bone | null, child: THREE.Bone | null, dir: THREE.Vector3) => {
+  const aim = (bone: THREE.Bone | null, child: THREE.Object3D | null, dir: THREE.Vector3) => {
     if (!bone || !child) return;
     body.updateMatrixWorld(true);
     const cur = wp(child).sub(wp(bone)).normalize();
@@ -170,13 +226,43 @@ export function buildCharacter(skinId: string): Character | null {
     const target = delta.multiply(wq(bone));
     bone.quaternion.copy(wq(bone.parent!).invert().multiply(target));
   };
-  // Pose de combate: la mano derecha en la empuñadura, la izquierda adelante sosteniendo el arma
-  aim(upR, foreR, new THREE.Vector3(-0.2, -0.9, 0.34));
-  aim(foreR, handR, new THREE.Vector3(0.12, -0.25, 0.96));
-  aim(upL, foreL, new THREE.Vector3(-0.22, -0.6, 0.77));
-  aim(foreL, handL, new THREE.Vector3(-0.5, -0.02, 0.86));
-  body.updateMatrixWorld(true);
+  /** Gira un hueso alrededor de un eje del espacio del modelo. */
+  const turnBone = (bone: THREE.Object3D | null, axis: THREE.Vector3, angle: number) => {
+    if (!bone || !angle) return;
+    body.updateMatrixWorld(true);
+    const target = new THREE.Quaternion().setFromAxisAngle(axis.clone().normalize(), angle).multiply(wq(bone));
+    bone.quaternion.copy(wq(bone.parent!).invert().multiply(target));
+  };
+  const X = new THREE.Vector3(1, 0, 0), Y = new THREE.Vector3(0, 1, 0), Z = new THREE.Vector3(0, 0, 1);
 
+  // Postura de combate: el torso un poco inclinado hacia delante
+  turnBone(chest, X, 0.07);
+
+  // Dedos de cada mano: cadenas de falanges (pulgar, índice, medio, anular, meñique)
+  type Fingers = Partial<Record<"thumb" | "index" | "middle" | "ring" | "pinky", THREE.Bone[]>>;
+  const fingersOf = (hand: THREE.Bone | null): Fingers => {
+    const res: Fingers = {};
+    if (!hand) return res;
+    for (const c of hand.children) {
+      const m = /thumb|index|middle|ring|pinky/i.exec(c.name);
+      if (!(c as THREE.Bone).isBone || !m) continue;
+      const chain: THREE.Bone[] = [];
+      let b: THREE.Object3D | undefined = c;
+      while (b && (b as THREE.Bone).isBone && chain.length < 4) {
+        chain.push(b as THREE.Bone);
+        b = b.children.find((x) => (x as THREE.Bone).isBone && !SEG.test(x.name));
+      }
+      res[m[0].toLowerCase() as keyof Fingers] = chain;
+    }
+    return res;
+  };
+  const fingR = fingersOf(handR), fingL = fingersOf(handL);
+
+  // Pose de descanso de brazos, manos, dedos y cabeza: cada agarre parte siempre de ella
+  const posed = [chest, upR, foreR, handR, upL, foreL, handL, head, ...Object.values(fingR).flat(), ...Object.values(fingL).flat()]
+    .filter((b): b is THREE.Bone => !!b);
+  const rest = new Map(posed.map((b) => [b, b.quaternion.clone()]));
+  const resetPose = () => { for (const [b, q] of rest) b.quaternion.copy(q); };
 
   // ---- Brazos: cinemática inversa de dos huesos (hombro, codo, muñeca) ----
   const armLen = (up: THREE.Bone | null, fore: THREE.Bone | null, hand: THREE.Bone | null) =>
@@ -196,45 +282,136 @@ export function buildCharacter(skinId: string): Character | null {
     aim(up, fore, elbow.clone().sub(S));
     aim(fore, hand, S.addScaledVector(u, d).sub(elbow));
   };
-  const POLE_R = new THREE.Vector3(-0.7, -1, -0.25), POLE_L = new THREE.Vector3(0.7, -1, 0);
+
+  /** Orienta la mano: `f` hacia donde apuntan los nudillos (muñeca → dedo medio) y `s` del índice al meñique. */
+  const orientHand = (hand: THREE.Bone | null, fg: Fingers, f: THREE.Vector3, sdir: THREE.Vector3) => {
+    const mid = fg.middle?.[0] ?? fg.ring?.[0], ix = fg.index?.[0], pk = fg.pinky?.[0] ?? fg.ring?.[0];
+    if (!hand || !mid || !ix || !pk) return;
+    body.updateMatrixWorld(true);
+    const H = wp(hand);
+    const cf = wp(mid).sub(H).normalize();
+    const cs = wp(pk).sub(wp(ix)); cs.addScaledVector(cf, -cs.dot(cf)).normalize();
+    const tf = f.clone().normalize();
+    const ts = sdir.clone().addScaledVector(tf, -sdir.dot(tf)).normalize();
+    const mC = new THREE.Matrix4().makeBasis(cf, cs, cf.clone().cross(cs));
+    const mT = new THREE.Matrix4().makeBasis(tf, ts, tf.clone().cross(ts));
+    const delta = new THREE.Quaternion().setFromRotationMatrix(mT.multiply(mC.transpose()));
+    const target = delta.multiply(wq(hand));
+    hand.quaternion.copy(wq(hand.parent!).invert().multiply(target));
+  };
+
+  /** Cierra los dedos hacia la palma: ángulos (rad) por falange; `rest` para los dedos no nombrados. */
+  const curl = (fg: Fingers, palm: THREE.Vector3, k: Partial<Record<keyof Fingers | "rest", number[]>>) => {
+    for (const [name, chain] of Object.entries(fg) as [keyof Fingers, THREE.Bone[]][]) {
+      const ang = k[name] ?? k.rest ?? [];
+      chain.forEach((b, j) => {
+        body.updateMatrixWorld(true);
+        const next = chain[j + 1];
+        const d = next ? wp(next).sub(wp(b)) : wp(b).sub(wp(chain[j - 1] ?? b.parent!));
+        const axis = d.normalize().cross(palm);
+        if (axis.lengthSq() > 1e-6) turnBone(b, axis, ang[j] ?? 0);
+      });
+    }
+  };
+
+  /** Brazos de reposo sin arma. */
+  const defaultArms = () => {
+    aim(upR, foreR, new THREE.Vector3(-0.2, -0.9, 0.34));
+    aim(foreR, handR, new THREE.Vector3(0.12, -0.25, 0.96));
+    aim(upL, foreL, new THREE.Vector3(-0.22, -0.6, 0.77));
+    aim(foreL, handL, new THREE.Vector3(-0.5, -0.02, 0.86));
+  };
+  defaultArms();
+  body.updateMatrixWorld(true);
+
   let held: THREE.Group | null = null;
   const holdWeapon = (o: THREE.Object3D | null, kind: WeaponHold) => {
     held?.removeFromParent();
     held = null;
-    if (!o) return;
-    const box = new THREE.Box3().setFromObject(o), size = box.getSize(new THREE.Vector3());
-    // puntos de agarre en el espacio del arma (cañón hacia -Z)
-    let grip: THREE.Vector3, fore: THREE.Vector3 | null = null, hand: THREE.Vector3, pitch = 0;
-    if (kind === "melee") {
-      grip = new THREE.Vector3(0, (box.min.y + box.max.y) / 2, box.max.z - Math.max(0.05, size.z * 0.08));
-      hand = new THREE.Vector3(-0.16, 1.02, 0.3);
-      pitch = -1.0; // la hoja hacia arriba y adelante
-    } else if (kind === "pistol") {
-      grip = new THREE.Vector3(0, box.min.y + size.y * 0.3, box.min.z + size.z * 0.78);
-      hand = new THREE.Vector3(-0.06, 1.22, 0.44);
-    } else {
-      grip = new THREE.Vector3(0, box.min.y + size.y * 0.28, box.min.z + size.z * 0.66);
-      fore = new THREE.Vector3(0, box.min.y + size.y * 0.45, Math.max(box.min.z + size.z * 0.3, grip.z - 0.42));
-      hand = new THREE.Vector3(-0.12, 1.16, 0.3);
-    }
+    resetPose();
+    if (!o) { defaultArms(); return; }
+    const pts = gripPoints(o, kind);
+    // torso de perfil (hombro izquierdo adelante): así la mano izquierda llega al guardamanos
+    const twist = kind === "rifle" ? -0.3 : kind === "melee" ? -0.15 : 0;
+    turnBone(chest, Y, twist);
     const g = new THREE.Group();
-    g.position.copy(hand);
-    g.rotation.x = pitch;
     const turn = new THREE.Group();
     turn.rotation.y = Math.PI; // el cañón pasa de -Z a +Z (el frente del modelo)
-    o.position.sub(grip);
     o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } });
     turn.add(o);
     g.add(turn);
     inner.add(g);
     held = g;
+    const shoulder = upR ? wp(upR) : new THREE.Vector3(-0.19, 1.42, 0);
+    if (kind === "rifle") {
+      // culata apoyada delante del hombro derecho y el arma un poco baja ("lista")
+      o.position.copy(pts.stock).negate();
+      g.position.copy(shoulder).add(new THREE.Vector3(0.07, -0.07, 0.15));
+      g.rotation.set(0.07, 0.06, 0, "YXZ");
+    } else if (kind === "pistol") {
+      o.position.copy(pts.grip).negate();
+      g.position.set(-0.05, shoulder.y - 0.25, 0.42);
+      g.rotation.set(0.12, 0.05, 0, "YXZ");
+    } else {
+      o.position.copy(pts.grip).negate();
+      g.position.set(-0.17, shoulder.y - 0.42, 0.27);
+      g.rotation.set(-1.0, 0.12, 0, "YXZ"); // la hoja hacia arriba y adelante
+    }
     inner.updateMatrixWorld(true);
-    // muñecas un poco detrás del punto de agarre (la palma queda sobre la empuñadura)
-    reach(upR, foreR, handR, lenR, hand.clone().add(new THREE.Vector3(0, 0.03, -0.07)), POLE_R);
-    const leftAt = fore
-      ? inner.worldToLocal(turn.localToWorld(fore.clone())).add(new THREE.Vector3(0.03, -0.04, -0.05))
-      : hand.clone().add(new THREE.Vector3(0.07, -0.05, -0.06));
-    reach(upL, foreL, handL, lenL, leftAt, POLE_L);
+    const toModel = (p: THREE.Vector3) => inner.worldToLocal(o.localToWorld(p.clone())); // p en el espacio propio del arma
+    // ejes del arma en el espacio del modelo
+    const fw = Z.clone().applyQuaternion(g.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(g.quaternion);
+    const rw = fw.clone().cross(up).normalize(); // a la derecha del personaje
+    const lw = rw.clone().negate();
+    const v = (a: THREE.Vector3, ka: number, b: THREE.Vector3, kb: number, c?: THREE.Vector3, kc = 0) =>
+      a.clone().multiplyScalar(ka).addScaledVector(b, kb).addScaledVector(c ?? a, c ? kc : 0).normalize();
+    const gripM = toModel(pts.grip);
+    // mano derecha: nudillos hacia delante y abajo, del índice (gatillo) al meñique hacia abajo
+    const fR = kind === "melee" ? v(Z.clone().addScaledVector(fw, -Z.dot(fw)), 1, lw, 0.3) : v(fw, 0.88, up, -0.42, lw, 0.15);
+    const sR = kind === "melee" ? fw.clone().negate() : v(up, -0.95, fw, -0.3);
+    const palmR = fR.clone().cross(sR).normalize();
+    reach(upR, foreR, handR, lenR, gripM.clone().addScaledVector(fR, -0.08).addScaledVector(palmR, -0.03), kind === "rifle" ? new THREE.Vector3(-0.5, -1, -0.05) : new THREE.Vector3(-0.6, -1, -0.2));
+    orientHand(handR, fingR, fR, sR);
+    curl(fingR, palmR, kind === "melee"
+      ? { thumb: [0.5, 0.45, 0.3], rest: [1.35, 1.45, 1.0] }
+      : { thumb: [0.35, 0.3, 0.2], index: [0.25, 0.45, 0.35], rest: [1.3, 1.4, 0.9] });
+    // mano izquierda
+    let fL: THREE.Vector3, sL: THREE.Vector3, at: THREE.Vector3 | null = null, poleL = new THREE.Vector3(0.4, -1, 0.05);
+    if (kind === "rifle") {
+      // bajo el guardamanos, con la palma hacia arriba
+      fL = v(fw, 0.8, rw, 0.55, up, 0.15); sL = fw.clone().negate();
+      at = toModel(pts.fore!);
+      // si el brazo no llega, la mano se desliza por el guardamanos hacia la empuñadura
+      if (upL && lenL[0]) {
+        const sh = wp(upL), max = (lenL[0] + lenL[1]) * 0.94;
+        const back = Math.max(0, at.distanceTo(gripM) - 0.13);
+        for (let t = 0; t < back && at.clone().addScaledVector(fw, -t).addScaledVector(fL, -0.075).distanceTo(sh) > max; t += 0.01) at.addScaledVector(fw, -0.01);
+      }
+    } else if (kind === "pistol") {
+      // envuelve la mano derecha desde la izquierda
+      fL = v(fw, 0.6, rw, 0.6, up, -0.35); sL = v(up, -0.9, fw, -0.3);
+      at = gripM.clone().addScaledVector(lw, 0.035).addScaledVector(up, -0.025);
+      poleL = new THREE.Vector3(0.6, -1, 0);
+    } else {
+      fL = v(Z.clone().addScaledVector(fw, -Z.dot(fw)), 1, rw, 0.3); sL = fw.clone().negate();
+      if (pts.grip2) at = toModel(pts.grip2);
+      poleL = new THREE.Vector3(0.6, -1, -0.2);
+    }
+    const palmL = sL.clone().cross(fL).normalize();
+    if (at) {
+      reach(upL, foreL, handL, lenL, at.addScaledVector(fL, -0.075).addScaledVector(palmL, -0.035), poleL);
+      orientHand(handL, fingL, fL, sL);
+      curl(fingL, palmL, kind === "melee" ? { thumb: [0.5, 0.45, 0.3], rest: [1.35, 1.45, 1.0] } : kind === "pistol" ? { thumb: [0.3, 0.2, 0.1], rest: [1.2, 1.2, 0.8] } : { thumb: [0.4, 0.2, 0.1], rest: [1.0, 1.1, 0.8] });
+    } else {
+      // arma blanca de una mano: el brazo izquierdo suelto, un poco adelantado
+      reach(upL, foreL, handL, lenL, new THREE.Vector3(0.24, shoulder.y - 0.55, 0.1), new THREE.Vector3(0.3, -0.2, -1));
+      curl(fingL, new THREE.Vector3(-1, 0, 0.3).normalize(), { thumb: [0.2, 0.2, 0.1], rest: [0.45, 0.55, 0.4] });
+    }
+    // la cabeza acompaña: mira un poco hacia abajo y, con el rifle, se apoya hacia la culata
+    turnBone(head, Y, -twist); // la cabeza sigue mirando al frente aunque el torso gire
+    turnBone(head, X, kind === "rifle" ? 0.13 : 0.08);
+    if (kind === "rifle") turnBone(head, Z, 0.07);
   };
 
   // ---- Piernas: giro alrededor del eje X del modelo sobre la pose de descanso ----
@@ -247,7 +424,6 @@ export function buildCharacter(skinId: string): Character | null {
       calfRest: calf ? wq(calf) : null,
     };
   });
-  const X = new THREE.Vector3(1, 0, 0);
   // reutilizados en cada cuadro (sin crear basura para el recolector)
   const qA = new THREE.Quaternion(), qB = new THREE.Quaternion(), qC = new THREE.Quaternion();
   let stride = Math.random() * 2;
@@ -260,17 +436,20 @@ export function buildCharacter(skinId: string): Character | null {
       if (!leg) return;
       const sg = i === 0 ? 1 : -1;
       const tuck = airborne ? (i === 0 ? 0.5 : 0.3) : 0;
+      // en guardia: pierna derecha un poco atrás, izquierda adelante y rodillas flexionadas
+      // (al correr la zancada manda y la guardia desaparece)
+      const guard = airborne ? 0 : 1 - Math.min(1, amp * 2.2);
       // ángulo positivo alrededor de X lleva la pierna hacia atrás; negativo, hacia delante
-      const a = -(s * sg * amp + tuck);
+      const a = -(s * sg * amp + tuck) + (i === 0 ? 0.1 : -0.14) * guard;
       const thighW = qA.setFromAxisAngle(X, a).multiply(leg.thighRest);
       leg.thigh.quaternion.copy(leg.thighParentInv).multiply(thighW);
       if (leg.calf && leg.calfRest) {
-        const bend = Math.max(0, s * sg) * amp * 1.5 + tuck * 1.6;
+        const bend = Math.max(0, s * sg) * amp * 1.5 + tuck * 1.6 + 0.22 * guard;
         const calfW = qB.setFromAxisAngle(X, a + bend).multiply(leg.calfRest);
         leg.calf.quaternion.copy(qC.copy(thighW).invert()).multiply(calfW);
       }
     });
-    inner.position.y = -Math.abs(Math.cos(stride * Math.PI)) * amp * 0.05;
+    inner.position.y = -Math.abs(Math.cos(stride * Math.PI)) * amp * 0.05 - 0.02 * (airborne ? 0 : 1 - Math.min(1, amp * 2.2));
   };
 
   // ---- Equipo ----

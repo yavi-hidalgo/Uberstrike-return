@@ -1,6 +1,5 @@
-// Menú principal "Hangar": a la izquierda el logo y las secciones, al centro el personaje en 3D con su
-// arma y a la derecha tu equipo y el botón de jugar. En Arsenal el centro pasa a ser el catálogo de
-// armas y la derecha muestra el arma en 3D con sus datos. Todo se guarda en el navegador.
+// Menú principal "vestíbulo": el personaje en 3D sosteniendo su arma a la derecha, tu nombre, equipo y
+// bots a la izquierda, y abajo tres fichas grandes (Jugar, Arsenal, Ajustes). Todo se guarda en el navegador.
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import {
@@ -102,9 +101,9 @@ class Preview {
     const rim = new THREE.DirectionalLight(0x8fb6ff, 2.2); rim.position.set(2.5, 2, -3);
     this.scene.add(key, rim, new THREE.AmbientLight(0x30384a, 0.8));
     // plataforma
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.02, 0.06, 48), new THREE.MeshStandardMaterial({ color: 0x0f1c30, roughness: 0.5, metalness: 0.6 }));
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.78, 0.05, 48), new THREE.MeshStandardMaterial({ color: 0x0f1c30, roughness: 0.5, metalness: 0.6 }));
     disc.position.y = -0.03;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.96, 0.012, 8, 64), new THREE.MeshBasicMaterial({ color: 0x3cc4ff }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.73, 0.01, 8, 64), new THREE.MeshBasicMaterial({ color: 0x3cc4ff }));
     ring.rotation.x = Math.PI / 2; ring.position.y = 0.005;
     this.pivot.add(disc, ring);
     this.scene.add(this.pivot, this.weaponOnly);
@@ -160,15 +159,19 @@ class Preview {
         this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
       }
-      if (!this.dragging) this.spin += dt * 0.35;
       const char = this.mode === "character";
+      if (!this.dragging) {
+        // el personaje se balancea de tres cuartos mirando a la cámara; el arma gira entera
+        if (char) this.spin += (-0.5 + Math.sin(now / 2600) * 0.35 - this.spin) * Math.min(1, dt * 1.5);
+        else this.spin += dt * 0.35;
+      }
       this.pivot.visible = char;
       this.weaponOnly.visible = !char;
       if (char) {
         this.pivot.rotation.y = this.spin;
         this.char?.update(dt, 0, false);
-        this.camera.position.set(0, 1.2, 4.4);
-        this.camera.lookAt(0, 0.95, 0);
+        this.camera.position.set(0, 1.15, 3.7);
+        this.camera.lookAt(0, 0.93, 0);
       } else {
         this.weaponOnly.rotation.y = this.spin;
         this.camera.position.set(0, 0.35, 3.2);
@@ -265,50 +268,105 @@ export interface MenuOptions {
   onSettings(s: Settings): void;
 }
 
-const TABS = [["jugar", "Jugar"], ["armas", "Arsenal"], ["ajustes", "Ajustes"]] as const;
+type Tab = "jugar" | "armas" | "ajustes";
 const SLOT_NAMES = ["Principal", "Pistola", "Arma blanca"];
 const SLOT_CATS: Category[][] = [["rifle", "smg", "shotgun", "sniper", "cannon"], ["pistol"], ["melee"]];
+const BOT_STEPS = [0, 1, 2, 3, 4, 6, 8];
+const QUALITY_NAMES: Record<string, string> = { low: "Baja", medium: "Media", high: "Alta" };
+const MAP_MODE = "Todos contra todos";
 
+const icon = (paths: string, size = 22) => {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("width", String(size)); s.setAttribute("height", String(size));
+  s.setAttribute("fill", "none"); s.setAttribute("stroke", "currentColor"); s.setAttribute("stroke-width", "1.8");
+  s.setAttribute("aria-hidden", "true");
+  s.innerHTML = paths;
+  return s;
+};
+const GEAR_ICON = '<circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"></path>';
+
+/**
+ * Menú "vestíbulo": a la izquierda tu nombre en grande, tu equipo y los bots; a la derecha el personaje
+ * en 3D sosteniendo su arma; abajo tres fichas grandes (Jugar con el mapa, Arsenal y Ajustes).
+ * Arsenal y Ajustes abren su panel a la izquierda sin salir del vestíbulo.
+ */
 export function createMenu(root: HTMLElement, opts: MenuOptions) {
   const state = opts.state;
   const thumbs = new Thumbs();
-  let tab: (typeof TABS)[number][0] = "jugar";
+  let tab: Tab = "jugar";
   let slot = 0;
   let focusWeapon = state.loadout[0];
 
   root.replaceChildren();
   const canvas = el("canvas", { id: "preview", "aria-label": "Vista 3D: arrastra para girar" });
   const preview = new Preview(canvas);
-  const nav = el("nav", { class: "m-nav", "aria-label": "Menú principal" });
-  const name = el("input", { id: "name", maxlength: "16", autocomplete: "nickname", placeholder: "Jugador", value: state.name });
-  name.addEventListener("input", () => { state.name = name.value; saveState(state); });
-  const side = el("div", { class: "m-side" },
-    el("h1", { class: "m-logo" }, "NEON", el("span", {}, "STRIKE")),
-    nav,
-    el("label", { class: "m-field m-name" }, el("span", {}, "Tu nombre"), name),
-  );
   const stage = el("div", { class: "m-stage" }, canvas);
   const stageInfo = el("div", { class: "m-stage-info" });
-  const panel = el("div", { class: "m-panel" });
-  const center = el("div", { class: "m-center" });
-  const rightBody = el("div", { class: "m-right-body" });
-  const error = el("div", { id: "menu-error", role: "alert" });
-  const playBtn = el("button", { id: "join-btn", type: "button", class: "m-play" }, "Jugar");
-  const right = el("aside", { class: "m-right" }, rightBody, el("div", { class: "m-foot" }, error, playBtn));
-  root.append(side, center, right);
+  stage.append(stageInfo);
 
-  for (const [id, label] of TABS) {
-    const b = el("button", { type: "button", class: "m-tab", "data-tab": id }, label);
-    b.addEventListener("click", () => { tab = id; render(); });
-    nav.append(b);
+  // barra superior
+  const qualityChip = el("button", { type: "button", class: "m-chipbtn" });
+  const gearBtn = el("button", { type: "button", class: "m-iconbtn", "aria-label": "Ajustes" }, icon(GEAR_ICON, 20));
+  const top = el("header", { class: "m-top" },
+    el("h1", { class: "m-logo" }, "NEON", el("span", {}, "STRIKE")),
+    el("div", { class: "m-top-right" }, qualityChip, gearBtn));
+
+  // panel izquierdo (cambia según la sección)
+  const left = el("section", { class: "m-left" });
+
+  // fichas inferiores
+  const error = el("div", { id: "menu-error", role: "alert" });
+  const playBtn = el("button", { id: "join-btn", type: "button", class: "m-play" });
+  const playLabel = el("span", { class: "m-play-label" }, "Jugar");
+  const playMap = el("span", { class: "m-play-map" });
+  playBtn.append(playLabel, playMap);
+  const mapImg = el("img", { class: "m-tile-img", alt: "", src: `${import.meta.env.BASE_URL}assets/ui/map_${opts.mapId}.jpg` });
+  mapImg.addEventListener("error", () => mapImg.remove());
+  const mapBtn = el("button", { type: "button", class: "m-mapbtn", "aria-haspopup": "true" }, "Cambiar mapa");
+  const mapMenu = el("div", { class: "m-mapmenu hidden", role: "menu" });
+  for (const id of PLAYABLE_MAPS) {
+    const b = el("button", { type: "button", role: "menuitem", class: id === opts.mapId ? "on" : "" },
+      el("img", { alt: "", src: `${import.meta.env.BASE_URL}assets/ui/map_${id}.jpg` }), el("span", {}, MAPS[id].name));
+    b.addEventListener("click", () => { mapMenu.classList.add("hidden"); if (id !== opts.mapId) opts.onMap(id); });
+    mapMenu.append(b);
   }
+  mapBtn.addEventListener("click", (e) => { e.stopPropagation(); mapMenu.classList.toggle("hidden"); });
+  document.addEventListener("click", () => mapMenu.classList.add("hidden"));
+  const playTile = el("div", { class: "m-tile m-tile-play" }, mapImg, playBtn, mapBtn, mapMenu);
+
+  const armsImg = el("img", { class: "m-tile-weapon", alt: "", width: "240", height: "150" });
+  const armsSub = el("span", { class: "m-tile-sub" });
+  const armsTile = el("button", { type: "button", class: "m-tile m-tile-nav", "data-tab": "armas" },
+    armsImg, el("span", { class: "m-tile-text" }, el("span", { class: "m-tile-title" }, "Arsenal"), armsSub));
+  const setTile = el("button", { type: "button", class: "m-tile m-tile-nav", "data-tab": "ajustes" },
+    el("span", { class: "m-tile-icon" }, icon(GEAR_ICON, 54)),
+    el("span", { class: "m-tile-text" }, el("span", { class: "m-tile-title" }, "Ajustes"), el("span", { class: "m-tile-sub" }, "Ratón, volumen y gráficos")));
+  const tiles = el("nav", { class: "m-tiles", "aria-label": "Menú principal" }, playTile, armsTile, setTile);
+
+  root.append(stage, top, left, tiles, error);
+
+  const go = (t: Tab) => { tab = tab === t && t !== "jugar" ? "jugar" : t; render(); };
+  armsTile.addEventListener("click", () => go("armas"));
+  setTile.addEventListener("click", () => go("ajustes"));
+  gearBtn.addEventListener("click", () => go("ajustes"));
+  qualityChip.addEventListener("click", () => go("ajustes"));
 
   const refreshPreview = () => {
     if (tab === "armas") { preview.setMode("weapon"); void preview.setWeapon(focusWeapon); }
     else { preview.setMode("character"); void preview.setCharacter(state.look, state.loadout[slot] ?? state.loadout[0]); }
   };
-
-  const change = () => { saveState(state); refreshPreview(); };
+  const refreshTiles = () => {
+    playMap.textContent = `${MAPS[opts.mapId]?.name ?? ""} · ${MAP_MODE}`;
+    thumbs.attach(armsImg, `w:${state.loadout[0]}`, () => weaponObject(state.loadout[0]), "side");
+    armsSub.textContent = state.loadout.map((id) => weaponModel(id)?.name ?? "").join(" · ");
+    qualityChip.replaceChildren("Calidad ", el("b", {}, QUALITY_NAMES[opts.quality] ?? opts.quality));
+    tiles.querySelectorAll<HTMLElement>(".m-tile-nav").forEach((b) => {
+      const on = b.dataset.tab === tab;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  };
+  const change = () => { saveState(state); refreshPreview(); refreshTiles(); };
 
   function statBars(id: string) {
     const box = el("div", { class: "m-bars" });
@@ -326,11 +384,7 @@ export function createMenu(root: HTMLElement, opts: MenuOptions) {
     const b = el("button", { type: "button", class: "m-card" + (selected ? " on" : ""), "aria-pressed": selected ? "true" : "false" },
       img, el("span", { class: "m-card-name" }, m.name),
       el("span", { class: "m-card-sub" }, `${CATEGORY_NAMES[m.category]}${m.futuristic ? " · energía" : ""}`));
-    b.addEventListener("click", () => {
-      state.loadout[slot] = id;
-      focusWeapon = id;
-      change(); render();
-    });
+    b.addEventListener("click", () => { state.loadout[slot] = id; focusWeapon = id; change(); render(); });
     b.addEventListener("mouseenter", () => { if (focusWeapon !== id) { focusWeapon = id; void preview.setWeapon(id); showWeaponInfo(); } });
     return b;
   }
@@ -347,100 +401,98 @@ export function createMenu(root: HTMLElement, opts: MenuOptions) {
     );
   }
 
-  function field(label: string, control: HTMLElement) {
-    return el("label", { class: "m-field" }, el("span", {}, label), control);
+  const back = () => {
+    const b = el("button", { type: "button", class: "m-back" }, "← Volver");
+    b.addEventListener("click", () => { tab = "jugar"; render(); });
+    return b;
+  };
+
+  function renderLobby() {
+    const name = el("input", { id: "name", class: "m-bigname", maxlength: "16", autocomplete: "nickname", placeholder: "Jugador", value: state.name, "aria-label": "Tu nombre" });
+    name.addEventListener("input", () => { state.name = name.value; saveState(state); });
+    const chips = el("div", { class: "m-chips" }, el("span", { class: "m-chip" }, "Vida ", el("b", {}, String(MAX_HP))));
+    state.loadout.forEach((id, i) => {
+      const c = el("button", { type: "button", class: "m-chip m-chip-btn", title: `Cambiar ${SLOT_NAMES[i].toLowerCase()}` }, `${i + 1} · ${weaponModel(id)?.name ?? ""}`);
+      c.addEventListener("click", () => { slot = i; focusWeapon = id; tab = "armas"; render(); });
+      chips.append(c);
+    });
+    const count = el("output", { class: "m-bots-n" }, String(state.settings.bots));
+    const step = (d: number) => {
+      const i = BOT_STEPS.findIndex((n) => n >= state.settings.bots);
+      const next = BOT_STEPS[Math.max(0, Math.min(BOT_STEPS.length - 1, (i < 0 ? BOT_STEPS.length - 1 : i) + d))];
+      state.settings.bots = next; count.textContent = String(next); saveState(state);
+    };
+    const minus = el("button", { type: "button", class: "m-step", "aria-label": "Menos bots" }, "−");
+    const plus = el("button", { type: "button", class: "m-step", "aria-label": "Más bots" }, "+");
+    minus.addEventListener("click", () => step(-1));
+    plus.addEventListener("click", () => step(1));
+    left.append(
+      el("p", { class: "m-eyebrow" }, "Listo para combatir"),
+      name,
+      chips,
+      el("div", { class: "m-bots" }, el("span", { class: "m-label" }, "Bots"), minus, count, plus,
+        el("span", { class: "m-bots-hint" }, "rivales controlados por el juego")),
+    );
   }
 
-  /** Tus tres armas; al pulsar una se abre el Arsenal en esa ranura. */
-  function loadoutList() {
-    const load = el("div", { class: "m-loadout" });
-    state.loadout.forEach((id, i) => {
-      const img = el("img", { alt: "", width: "240", height: "150" });
-      thumbs.attach(img, `w:${id}`, () => weaponObject(id), "side");
-      const b = el("button", { type: "button", class: "m-slot", "aria-label": `Cambiar ${SLOT_NAMES[i].toLowerCase()}: ${weaponModel(id)?.name ?? ""}` },
-        el("span", { class: "m-slot-key" }, String(i + 1)),
-        el("span", { class: "m-slot-text" }, el("b", {}, weaponModel(id)?.name ?? ""), el("small", {}, i === 2 ? "Arma blanca · +10 % velocidad" : SLOT_NAMES[i])),
-        img);
-      b.addEventListener("click", () => { slot = i; focusWeapon = id; tab = "armas"; render(); });
-      load.append(b);
+  function renderArsenal() {
+    const slots = el("div", { class: "m-seg" });
+    SLOT_NAMES.forEach((n, i) => {
+      const b = el("button", { type: "button", class: i === slot ? "on" : "" }, `${i + 1} · ${n}`);
+      b.addEventListener("click", () => { slot = i; focusWeapon = state.loadout[i]; render(); });
+      slots.append(b);
     });
-    return load;
+    const list = el("div", { class: "m-panel" });
+    for (const cat of SLOT_CATS[slot]) {
+      for (const fut of [false, true]) {
+        const ws = WEAPON_MODELS.filter((w) => w.category === cat && w.futuristic === fut);
+        if (!ws.length) continue;
+        list.append(el("h3", {}, `${CATEGORY_NAMES[cat]}${fut ? " · futuristas" : ""}`));
+        const grid = el("div", { class: "m-grid" });
+        for (const w of ws) grid.append(weaponCard(w.id, state.loadout[slot] === w.id));
+        list.append(grid);
+      }
+    }
+    left.append(el("div", { class: "m-panel-head" }, back(), el("h2", {}, "Arsenal")), slots, list);
+  }
+
+  function renderSettings() {
+    const range = (label: string, key: "sens" | "volume" | "music", min: number, max: number, stepv: number, fmt: (v: number) => string) => {
+      const input = el("input", { type: "range", min: String(min), max: String(max), step: String(stepv), value: String(state.settings[key]) });
+      const out = el("output", {}, fmt(state.settings[key]));
+      input.addEventListener("input", () => { state.settings[key] = parseFloat(input.value); out.textContent = fmt(state.settings[key]); saveState(state); opts.onSettings(state.settings); });
+      return el("label", { class: "m-field" }, el("span", {}, label), el("div", { class: "m-range" }, input, out));
+    };
+    const pct = (v: number) => `${Math.round(v * 100)} %`;
+    const q = el("select", { id: "quality" });
+    q.append(new Option("Baja: PCs modestos y portátiles", "low"), new Option("Media: sombras y brillo", "medium"), new Option("Alta: sombras suaves y antialiasing", "high"));
+    q.value = opts.quality;
+    q.addEventListener("change", () => opts.onQuality(q.value));
+    left.append(
+      el("div", { class: "m-panel-head" }, back(), el("h2", {}, "Ajustes")),
+      el("div", { class: "m-panel" },
+        range("Sensibilidad del ratón", "sens", 0.3, 2.5, 0.05, (v) => `${v.toFixed(2)}×`),
+        range("Volumen de efectos", "volume", 0, 1, 0.05, pct),
+        range("Volumen de música", "music", 0, 1, 0.05, pct),
+        el("label", { class: "m-field" }, el("span", {}, "Calidad gráfica"), q),
+        el("h3", {}, "Controles"),
+        el("div", { class: "controls" },
+          el("div", {}, "W A S D moverse · Shift correr · Espacio saltar"),
+          el("div", {}, "Clic disparar · Clic derecho apuntar · R recargar"),
+          el("div", {}, "1 2 3 o rueda del ratón: cambiar de arma"),
+          el("div", {}, "Tab marcador · Esc pausa")),
+        el("p", { class: "m-note" }, "Estos ajustes también están en el menú de pausa (Esc) durante la partida.")),
+    );
   }
 
   function render() {
-    root.classList.toggle("tab-armas", tab === "armas");
-    nav.querySelectorAll<HTMLElement>(".m-tab").forEach((b) => {
-      const on = b.dataset.tab === tab;
-      b.classList.toggle("on", on);
-      if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
-    });
-    panel.replaceChildren();
-    panel.scrollTop = 0;
-    rightBody.replaceChildren();
-    if (tab === "armas") {
-      // centro: catálogo; derecha: el arma en 3D y su ficha
-      center.replaceChildren(panel);
-      rightBody.append(stage, stageInfo);
-      const slots = el("div", { class: "m-seg" });
-      SLOT_NAMES.forEach((n, i) => {
-        const b = el("button", { type: "button", class: i === slot ? "on" : "" }, `${i + 1} · ${n}`);
-        b.addEventListener("click", () => { slot = i; focusWeapon = state.loadout[i]; render(); });
-        slots.append(b);
-      });
-      panel.append(slots);
-      for (const cat of SLOT_CATS[slot]) {
-        for (const fut of [false, true]) {
-          const list = WEAPON_MODELS.filter((w) => w.category === cat && w.futuristic === fut);
-          if (!list.length) continue;
-          panel.append(el("h3", {}, `${CATEGORY_NAMES[cat]}${fut ? " · futuristas" : ""}`));
-          const grid = el("div", { class: "m-grid" });
-          for (const w of list) grid.append(weaponCard(w.id, state.loadout[slot] === w.id));
-          panel.append(grid);
-        }
-      }
-    } else {
-      // centro: el personaje sobre su plataforma
-      center.replaceChildren(stage);
-      if (tab === "jugar") {
-        const map = el("select", { id: "map-select" });
-        for (const id of PLAYABLE_MAPS) map.append(new Option(MAPS[id].name, id));
-        map.value = opts.mapId;
-        map.addEventListener("change", () => opts.onMap(map.value));
-        const q = el("select", { id: "quality" });
-        q.append(new Option("Baja: PCs modestos y portátiles", "low"), new Option("Media: sombras y brillo", "medium"), new Option("Alta: sombras suaves y antialiasing", "high"));
-        q.value = opts.quality;
-        q.addEventListener("change", () => opts.onQuality(q.value));
-        const bots = el("select", { id: "bots-select" });
-        for (const n of [0, 1, 2, 3, 4, 6, 8]) bots.append(new Option(n === 0 ? "Sin bots" : `${n} bot${n > 1 ? "s" : ""}`, String(n)));
-        bots.value = String(state.settings.bots);
-        bots.addEventListener("change", () => { state.settings.bots = parseInt(bots.value, 10); saveState(state); });
-        rightBody.append(
-          el("div", { class: "m-box m-hp" }, el("span", {}, "VIDA"), el("b", {}, String(MAX_HP))),
-          el("h3", {}, "Tu equipo"), loadoutList(),
-          field("Mapa", map), field("Rivales controlados por el juego", bots), field("Calidad gráfica", q),
-        );
-      } else {
-        const range = (label: string, key: keyof Settings, min: number, max: number, step: number, fmt: (v: number) => string) => {
-          const input = el("input", { type: "range", min: String(min), max: String(max), step: String(step), value: String(state.settings[key]) });
-          const out = el("output", {}, fmt(state.settings[key]));
-          input.addEventListener("input", () => { state.settings[key] = parseFloat(input.value); out.textContent = fmt(state.settings[key]); saveState(state); opts.onSettings(state.settings); });
-          return el("label", { class: "m-field" }, el("span", {}, label), el("div", { class: "m-range" }, input, out));
-        };
-        const pct = (v: number) => `${Math.round(v * 100)} %`;
-        rightBody.append(
-          range("Sensibilidad del ratón", "sens", 0.3, 2.5, 0.05, (v) => `${v.toFixed(2)}×`),
-          range("Volumen de efectos", "volume", 0, 1, 0.05, pct),
-          range("Volumen de música", "music", 0, 1, 0.05, pct),
-          el("h3", {}, "Controles"),
-          el("div", { class: "controls" },
-            el("div", {}, "W A S D moverse · Shift correr · Espacio saltar"),
-            el("div", {}, "Clic disparar · Clic derecho apuntar · R recargar"),
-            el("div", {}, "1 2 3 o rueda del ratón: cambiar de arma"), el("div", {}, "Tab marcador · Esc pausa")),
-          el("p", { class: "m-note" }, "Estos ajustes también están en el menú de pausa (Esc) durante la partida."),
-        );
-      }
-    }
+    root.dataset.tab = tab;
+    left.replaceChildren();
+    if (tab === "armas") renderArsenal();
+    else if (tab === "ajustes") renderSettings();
+    else renderLobby();
     refreshPreview();
+    refreshTiles();
     showWeaponInfo();
   }
 
@@ -451,7 +503,7 @@ export function createMenu(root: HTMLElement, opts: MenuOptions) {
     playBtn.disabled = true;
     try { await opts.onPlay(state); }
     catch (e) { console.error(e); error.textContent = "No se pudo conectar al servidor. ¿Está encendido?"; }
-    finally { playBtn.disabled = false; playBtn.textContent = "Jugar"; }
+    finally { playBtn.disabled = false; playLabel.textContent = "Jugar"; }
   });
 
   render();
@@ -460,7 +512,7 @@ export function createMenu(root: HTMLElement, opts: MenuOptions) {
     show() { root.classList.remove("hidden"); preview.start(); },
     hide() { root.classList.add("hidden"); preview.stop(); },
     setError(msg: string) { error.textContent = msg; },
-    setBusy(text: string | null) { playBtn.disabled = text !== null; playBtn.textContent = text ?? "Jugar"; },
+    setBusy(text: string | null) { playBtn.disabled = text !== null; playLabel.textContent = text ?? "Jugar"; },
     start() { preview.start(); },
   };
 }

@@ -51,8 +51,15 @@ for (let i = 0; i < combos.length; i++) {
   const x = (i % cols) * W * 2, y = Math.floor(i / cols) * H;
   // el personaje mira hacia -Z: de frente = cámara en -Z; de lado = cámara en +X (su derecha)
   for (const [vi, pos] of (q.get("views") === "34" ? [[0, [1.7, 1.25, -2.7]], [1, [-2.2, 1.3, -2.2]]] : [[0, [0, 1.0, -3.2]], [1, [3.2, 1.0, 0]]])) {
-    const cam = new THREE.PerspectiveCamera(36, W / H, 0.1, 50);
-    cam.position.set(...pos); cam.lookAt(0, 0.95, 0);
+    const zoom = +(q.get("zoom") || 1);
+    const cam = new THREE.PerspectiveCamera(36 / zoom, W / H, 0.1, 50);
+    cam.position.set(...pos); cam.lookAt(0, zoom > 1 ? 1.2 : 0.95, 0);
+    // cámara a medida: cam=x,y,z;x,y,z (una por vista) y look=x,y,z
+    // enfocar un hueso: focus=L_Wrist&off=x,y,z;x,y,z (desplazamiento de la cámara respecto al hueso)
+    if (q.get("focus") && ch) {
+      let bone = null; ch.body.traverse((o) => { if (!bone && o.isBone && o.name.startsWith(q.get("focus"))) bone = o; });
+      if (bone) { s.updateMatrixWorld(true); const t = bone.getWorldPosition(new THREE.Vector3()); const off = (q.get("off") || "0.3,0.1,-0.5").split(";"); cam.position.copy(t).add(new THREE.Vector3(...(off[vi] ?? off[0]).split(",").map(Number))); cam.lookAt(t); }
+    } else if (q.get("cam")) { const c = q.get("cam").split(";")[vi] ?? q.get("cam").split(";")[0]; cam.position.set(...c.split(",").map(Number)); cam.lookAt(...(q.get("look") || "0,1.2,0").split(",").map(Number)); }
     r.render(s, cam);
     ctx.drawImage(c, x + vi * W, y);
   }
