@@ -25,7 +25,32 @@ const gearCache = new Map<string, Promise<THREE.Object3D | null>>();
 const SOLDIER_SKINS = ["swat", "operator", "tactical"];
 
 /** Ajustes por skin: `yaw` si el modelo no mira hacia +Z; `noGear` para piezas que no le calzan. */
-const SKIN_FIX: Record<string, { yaw?: number; head?: number; chest?: number }> = {};
+const SKIN_FIX: Record<string, { yaw?: number; head?: number; chest?: number; gun?: string }> = {
+  // soldiers con una animación de artista sosteniendo su propio rifle: `gun` es el nodo animado de ese rifle
+  swat: { gun: "part_2_low_101" },
+  operator: { gun: "Gun_99" },
+};
+
+/** Centro y ejes principales (el más largo primero) de una nube de puntos. */
+function principalAxes(pts: THREE.Vector3[]) {
+  const c = new THREE.Vector3();
+  for (const p of pts) c.add(p);
+  c.divideScalar(Math.max(1, pts.length));
+  const m = [0, 0, 0, 0, 0, 0]; // xx xy xz yy yz zz
+  for (const p of pts) {
+    const x = p.x - c.x, y = p.y - c.y, z = p.z - c.z;
+    m[0] += x * x; m[1] += x * y; m[2] += x * z; m[3] += y * y; m[4] += y * z; m[5] += z * z;
+  }
+  const mul = (v: THREE.Vector3, k: number[]) => new THREE.Vector3(
+    k[0] * v.x + k[1] * v.y + k[2] * v.z, k[1] * v.x + k[3] * v.y + k[4] * v.z, k[2] * v.x + k[4] * v.y + k[5] * v.z);
+  const power = (k: number[], seed: THREE.Vector3) => { let v = seed.clone(); for (let i = 0; i < 60; i++) v = mul(v, k).normalize(); return v; };
+  const a1 = power(m, new THREE.Vector3(1, 0.3, 0.2));
+  const l1 = mul(a1, m).dot(a1);
+  const d = [m[0] - l1 * a1.x * a1.x, m[1] - l1 * a1.x * a1.y, m[2] - l1 * a1.x * a1.z, m[3] - l1 * a1.y * a1.y, m[4] - l1 * a1.y * a1.z, m[5] - l1 * a1.z * a1.z];
+  const a2 = power(d, new THREE.Vector3(0.2, 1, 0.3));
+  a2.addScaledVector(a1, -a2.dot(a1)).normalize();
+  return { c, a1, a2 };
+}
 
 /**
  * Ajustes por pieza de equipo. Por defecto se asume que mira hacia +Z y se escala por su ancho.
@@ -128,21 +153,26 @@ const find = (root: THREE.Object3D, re: RegExp, not?: RegExp): THREE.Bone | null
  */
 export function gripPoints(o: THREE.Object3D, kind: WeaponHold) {
   o.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(o), size = box.getSize(new THREE.Vector3());
-  const N = 40, low = new Array<number>(N).fill(Infinity), high = new Array<number>(N).fill(-Infinity);
-  const v = new THREE.Vector3();
+  const pts: THREE.Vector3[] = [];
   o.traverse((c) => {
     const m = c as THREE.Mesh;
     const pos = m.isMesh ? m.geometry.getAttribute("position") : null;
     if (!pos) return;
     const step = Math.max(1, Math.floor(pos.count / 6000));
-    for (let i = 0; i < pos.count; i += step) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
-      const k = Math.min(N - 1, Math.max(0, Math.floor(((v.z - box.min.z) / size.z) * N)));
-      if (v.y < low[k]) low[k] = v.y;
-      if (v.y > high[k]) high[k] = v.y;
-    }
+    for (let i = 0; i < pos.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld));
   });
+  return gripFromPoints(pts, kind);
+}
+
+/** Lo mismo que `gripPoints`, a partir de los vértices del arma (cañón hacia -Z, arriba +Y). */
+export function gripFromPoints(pts: THREE.Vector3[], kind: WeaponHold) {
+  const box = new THREE.Box3().setFromPoints(pts), size = box.getSize(new THREE.Vector3());
+  const N = 40, low = new Array<number>(N).fill(Infinity), high = new Array<number>(N).fill(-Infinity);
+  for (const v of pts) {
+    const k = Math.min(N - 1, Math.max(0, Math.floor(((v.z - box.min.z) / size.z) * N)));
+    if (v.y < low[k]) low[k] = v.y;
+    if (v.y > high[k]) high[k] = v.y;
+  }
   const zAt = (k: number) => box.min.z + ((k + 0.5) / N) * size.z; // k = 0 en la boca del cañón
   const kOf = (f: number) => Math.min(N - 1, Math.max(0, Math.floor(f * N)));
   const midY = (k: number) => (Number.isFinite(low[k]) ? (low[k] + high[k]) / 2 : box.min.y + size.y / 2);
@@ -199,6 +229,18 @@ export function buildCharacter(skinId: string): Character | null {
     m.frustumCulled = false; // la caja de los modelos con esqueleto no se actualiza al animar
   });
   body.updateMatrixWorld(true);
+
+  // Soldados con animación de artista: se reproduce para los rifles y su rifle se cambia por el elegido
+  const fixA = SKIN_FIX[skinId] ?? {};
+  const clip = t.gltf.animations[0];
+  const gunNode = fixA.gun ? model.getObjectByName(fixA.gun) ?? null : null;
+  const mixer = gunNode && clip ? new THREE.AnimationMixer(model) : null;
+  const action = mixer && clip ? mixer.clipAction(clip) : null;
+  const bindPose = new Map<THREE.Object3D, [THREE.Vector3, THREE.Quaternion, THREE.Vector3]>();
+  model.traverse((o) => bindPose.set(o, [o.position.clone(), o.quaternion.clone(), o.scale.clone()]));
+  const restoreBind = () => { for (const [o, [p, q, sc]] of bindPose) { o.position.copy(p); o.quaternion.copy(q); o.scale.copy(sc); } };
+  if (gunNode) gunNode.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.visible = false; });
+  let animMode = false;
 
   // Posición y giro de un objeto en el espacio del modelo (`inner`), esté o no el personaje en la escena
   const wp = (o: THREE.Object3D) => inner.worldToLocal(o.getWorldPosition(new THREE.Vector3()));
@@ -447,10 +489,30 @@ export function buildCharacter(skinId: string): Character | null {
 
   const holdWeapon = (o: THREE.Object3D | null, kind: WeaponHold) => {
     held?.removeFromParent();
-    held = null; snaps = null;
+    held = null; snaps = null; animMode = false;
+    if (action) { action.stop(); restoreBind(); }
     resetPose();
     if (!o) { defaultArms(); return; }
     const pts = gripPoints(o, kind);
+    if (gunAlign && action && mixer && gunNode && kind === "rifle") {
+      // animación de artista: el arma ocupa el lugar exacto del rifle original y sigue a las manos
+      const g = new THREE.Group();
+      const turn = new THREE.Group();
+      turn.rotation.y = Math.PI;
+      o.position.copy(pts.grip).negate();
+      o.traverse((c) => { const m = c as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } });
+      turn.add(o);
+      g.add(turn);
+      g.position.copy(gunAlign.grip);
+      g.quaternion.copy(gunAlign.q);
+      g.scale.setScalar(gunAlign.scale);
+      gunNode.add(g);
+      held = g;
+      animMode = true;
+      action.reset().play();
+      mixer.update(Math.random() * 3); // cada soldado en un momento distinto de la animación
+      return;
+    }
     const g = new THREE.Group();
     const turn = new THREE.Group();
     turn.rotation.y = Math.PI; // el cañón pasa de -Z a +Z (el frente del modelo)
@@ -493,6 +555,7 @@ export function buildCharacter(skinId: string): Character | null {
   let stride = Math.random() * 2;
   const update = (dt: number, speed: number, airborne: boolean) => {
     clock += dt;
+    if (animMode && mixer) mixer.update(dt);
     if (snaps) {
       const target = clock < aimUntil ? 1 : 0;
       if (Math.abs(target - aimT) > 1e-3) {
@@ -504,13 +567,15 @@ export function buildCharacter(skinId: string): Character | null {
     stride += dt * (2 + sp * 1.1);
     const amp = airborne ? 0 : Math.min(0.62, sp * 0.085);
     const s = Math.sin(stride * Math.PI);
+    // quieto con animación de artista: las piernas las mueve la animación
+    if (animMode && amp < 0.05 && !airborne) { inner.position.y = 0; return; }
     legs.forEach((leg, i) => {
       if (!leg) return;
       const sg = i === 0 ? 1 : -1;
       const tuck = airborne ? (i === 0 ? 0.5 : 0.3) : 0;
       // en guardia: pierna derecha un poco atrás, izquierda adelante y rodillas flexionadas
       // (al correr la zancada manda y la guardia desaparece)
-      const guard = airborne ? 0 : 1 - Math.min(1, amp * 2.2);
+      const guard = airborne || animMode ? 0 : 1 - Math.min(1, amp * 2.2);
       // ángulo positivo alrededor de X lleva la pierna hacia atrás; negativo, hacia delante
       const a = -(s * sg * amp + tuck) + (i === 0 ? 0.1 : -0.14) * guard;
       const thighW = qA.setFromAxisAngle(X, a).multiply(leg.thighRest);
@@ -521,7 +586,7 @@ export function buildCharacter(skinId: string): Character | null {
         leg.calf.quaternion.copy(qC.copy(thighW).invert()).multiply(calfW);
       }
     });
-    inner.position.y = -Math.abs(Math.cos(stride * Math.PI)) * amp * 0.05 - 0.02 * (airborne ? 0 : 1 - Math.min(1, amp * 2.2));
+    inner.position.y = -Math.abs(Math.cos(stride * Math.PI)) * amp * 0.05 - (animMode ? 0 : 0.02 * (airborne ? 0 : 1 - Math.min(1, amp * 2.2)));
   };
 
   // ---- Equipo ----
@@ -580,5 +645,61 @@ export function buildCharacter(skinId: string): Character | null {
     for (const h of made) if (h) holders.push(h);
   };
 
+  // ---- Rifle original del soldado animado: dónde está la empuñadura y hacia dónde apunta ----
+  let gunAlign: GunAlign | null = null;
+  if (mixer && action && gunNode && handR) {
+    action.play();
+    mixer.setTime(0.5);
+    body.updateMatrixWorld(true);
+    const inv = gunNode.matrixWorld.clone().invert();
+    const pts: THREE.Vector3[] = [];
+    gunNode.traverse((m) => {
+      const mesh = m as THREE.Mesh;
+      const pos = mesh.isMesh ? mesh.geometry.getAttribute("position") : null;
+      if (!pos) return;
+      const step = Math.max(1, Math.floor(pos.count / 3000));
+      for (let i = 0; i < pos.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld).applyMatrix4(inv));
+    });
+    if (pts.length > 10) {
+      // escala del nodo del rifle respecto al espacio del modelo (metros)
+      const sGun = new THREE.Vector3().setFromMatrixScale(gunNode.matrixWorld).x / new THREE.Vector3().setFromMatrixScale(inner.matrixWorld).x;
+      const { c, a1, a2 } = principalAxes(pts);
+      // la palma de la mano derecha, en el espacio del rifle
+      const mid = fingR.middle?.[0] ?? fingR.index?.[0];
+      const hw = handR.getWorldPosition(new THREE.Vector3());
+      const palm = (mid ? hw.clone().lerp(mid.getWorldPosition(new THREE.Vector3()), 0.6) : hw).applyMatrix4(inv);
+      const r = 0.09 / sGun;
+      const near = pts.filter((p) => p.distanceTo(palm) < r);
+      const grip = near.length
+        ? near.reduce((acc, p) => acc.add(p), new THREE.Vector3()).divideScalar(near.length)
+        : pts.reduce((best, p) => (p.distanceTo(palm) < best.distanceTo(palm) ? p : best), pts[0]).clone();
+      // el cañón apunta hacia el extremo más lejano de la mano derecha
+      let maxP = -Infinity, minP = Infinity;
+      for (const p of pts) { const d = p.clone().sub(grip).dot(a1); maxP = Math.max(maxP, d); minP = Math.min(minP, d); }
+      const fwd = -minP > maxP ? a1.clone().negate() : a1.clone();
+      // arriba: el cajón del arma concentra la mayoría de los vértices y el cargador y la empuñadura
+      // sobresalen hacia abajo, así que la mediana queda por encima del centro de la caja
+      const proj = pts.map((p) => p.clone().sub(c).dot(a2)).sort((x, y) => x - y);
+      const median = proj[Math.floor(proj.length / 2)], mid2 = (proj[0] + proj[proj.length - 1]) / 2;
+      const up = median < mid2 ? a2.clone().negate() : a2.clone();
+      up.addScaledVector(fwd, -up.dot(fwd)).normalize();
+      // la empuñadura real del rifle original, con el mismo análisis que las armas del juego
+      const side = fwd.clone().cross(up); // X del espacio canónico (cañón -Z, arriba +Y)
+      const back = fwd.clone().negate();
+      const canon = pts.map((p) => new THREE.Vector3(p.dot(side), p.dot(up), p.dot(back)));
+      const gc = gripFromPoints(canon, "rifle").grip;
+      grip.copy(side).multiplyScalar(gc.x).addScaledVector(up, gc.y).addScaledVector(back, gc.z);
+      const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(up.clone().cross(fwd), up, fwd));
+      gunAlign = { grip, q, scale: 1 / sGun };
+    }
+    action.stop();
+    restoreBind();
+    resetPose();
+    defaultArms();
+  }
+
   return { body, update, setGear, holdWeapon, aim: aimFor };
 }
+
+/** Lugar del rifle original de un soldado animado, en el espacio de su nodo: empuñadura y orientación. */
+interface GunAlign { grip: THREE.Vector3; q: THREE.Quaternion; scale: number }
