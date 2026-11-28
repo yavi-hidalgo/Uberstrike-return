@@ -677,11 +677,15 @@ export function buildCharacter(skinId: string): Character | null {
       let maxP = -Infinity, minP = Infinity;
       for (const p of pts) { const d = p.clone().sub(grip).dot(a1); maxP = Math.max(maxP, d); minP = Math.min(minP, d); }
       const fwd = -minP > maxP ? a1.clone().negate() : a1.clone();
-      // arriba: el cajón del arma concentra la mayoría de los vértices y el cargador y la empuñadura
-      // sobresalen hacia abajo, así que la mediana queda por encima del centro de la caja
-      const proj = pts.map((p) => p.clone().sub(c).dot(a2)).sort((x, y) => x - y);
-      const median = proj[Math.floor(proj.length / 2)], mid2 = (proj[0] + proj[proj.length - 1]) / 2;
-      const up = median < mid2 ? a2.clone().negate() : a2.clone();
+      // arriba: al sujetar un rifle, las dos muñecas quedan por debajo del eje del cañón (la derecha en
+      // la empuñadura y la izquierda bajo el guardamanos)
+      const below = (b: THREE.Bone | null) => {
+        if (!b) return new THREE.Vector3();
+        const d = b.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).sub(c);
+        return d.addScaledVector(fwd, -d.dot(fwd)).normalize();
+      };
+      const down = below(handR).add(below(handL));
+      const up = a2.dot(down) > 0 ? a2.clone().negate() : a2.clone();
       up.addScaledVector(fwd, -up.dot(fwd)).normalize();
       // la empuñadura real del rifle original, con el mismo análisis que las armas del juego
       const side = fwd.clone().cross(up); // X del espacio canónico (cañón -Z, arriba +Y)

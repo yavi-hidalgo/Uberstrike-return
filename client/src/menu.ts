@@ -93,16 +93,29 @@ class Preview {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer.toneMappingExposure = 1.05;
+    // sombras suaves del personaje sobre la plataforma
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const pm = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.7;
+    this.scene.environmentIntensity = 0.55;
     pm.dispose();
-    const key = new THREE.DirectionalLight(0xfff0dc, 2.6); key.position.set(-2, 3, 3);
-    const rim = new THREE.DirectionalLight(0x8fb6ff, 2.2); rim.position.set(2.5, 2, -3);
-    this.scene.add(key, rim, new THREE.AmbientLight(0x30384a, 0.8));
+    // Iluminación de estudio: luz principal cálida arriba a la izquierda (con sombra), relleno frío
+    // tenue al frente y dos luces de contorno detrás que separan la silueta del fondo
+    const key = new THREE.DirectionalLight(0xfff1e0, 3.0); key.position.set(-1.6, 3.2, 2.6);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    Object.assign(key.shadow.camera, { left: -1.1, right: 1.1, top: 2.1, bottom: -0.3, near: 0.5, far: 8 });
+    key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+    const fill = new THREE.DirectionalLight(0xbcd2ff, 0.55); fill.position.set(2.4, 1.1, 2.6);
+    const rimL = new THREE.DirectionalLight(0x8fd8ff, 1.9); rimL.position.set(-2.6, 2.2, -2.4);
+    const rimR = new THREE.DirectionalLight(0xa8cfff, 1.7); rimR.position.set(2.6, 2.6, -2.2);
+    this.scene.add(key, key.target, fill, rimL, rimR, new THREE.HemisphereLight(0x8fa8c8, 0x0c1220, 0.35));
     // plataforma
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.78, 0.05, 48), new THREE.MeshStandardMaterial({ color: 0x0f1c30, roughness: 0.5, metalness: 0.6 }));
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.78, 0.05, 48), new THREE.MeshStandardMaterial({ color: 0x0f1c30, roughness: 0.55, metalness: 0.5 }));
     disc.position.y = -0.03;
+    disc.receiveShadow = true;
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.73, 0.01, 8, 64), new THREE.MeshBasicMaterial({ color: 0x3cc4ff }));
     ring.rotation.x = Math.PI / 2; ring.position.y = 0.005;
     this.pivot.add(disc, ring);

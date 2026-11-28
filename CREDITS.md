@@ -103,11 +103,11 @@ Se modificaron: texturas comprimidas a WebP y encuadre calculado a partir del es
 
 | Modelo | Autor | Enlace |
 |---|---|---|
-| S.W.A.T. Operator | SpatialNeglect | [sketchfab](https://sketchfab.com/3d-models/none-9e82fabf26194896b5ad4a364d864eab) |
-| FSB Operator | SpatialNeglect | [sketchfab](https://sketchfab.com/3d-models/none-43a561e941704eefb1ab0614be4f0049) |
+| S.W.A.T. Operator | Mateusz Woliński (jeandiz) | [sketchfab](https://sketchfab.com/3d-models/none-9e82fabf26194896b5ad4a364d864eab) |
+| FSB Operator | Mateusz Woliński (jeandiz) | [sketchfab](https://sketchfab.com/3d-models/fsb-operator-43a561e941704eefb1ab0614be4f0049) |
 | Soldier Full Tactical Gear (LowPolyGameReady) | DanlyVostok | [sketchfab](https://sketchfab.com/3d-models/none-850593a8c7114c188395ba1849a66eb9) |
 
-Se modificaron: geometría reducida, texturas comprimidas a WebP, y animación de caminar, correr, saltar y caer añadida por código sobre su pose de reposo.
+Se modificaron: texturas comprimidas a KTX2 (el FSB Operator usa la versión de alta calidad, con texturas de 2048 px), su rifle original se oculta y se reemplaza por el arma elegida, y la zancada al caminar se añade por código.
 
 ## Ampliación de los mapas
 

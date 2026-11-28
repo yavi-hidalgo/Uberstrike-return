@@ -7,8 +7,8 @@ export interface Skin { id: string; name: string; author: string; source: string
 export interface GearItem { id: string; slot: GearSlot; name: string; author: string; source: string; hp: number }
 
 export const SKINS: Skin[] = [
-  { id: "swat", name: "SWAT", author: "SpatialNeglect", source: "https://sketchfab.com/3d-models/none-9e82fabf26194896b5ad4a364d864eab" },
-  { id: "operator", name: "Operador", author: "SpatialNeglect", source: "https://sketchfab.com/3d-models/none-43a561e941704eefb1ab0614be4f0049" },
+  { id: "swat", name: "SWAT", author: "Mateusz Woliński (jeandiz)", source: "https://sketchfab.com/3d-models/none-9e82fabf26194896b5ad4a364d864eab" },
+  { id: "operator", name: "Operador", author: "Mateusz Woliński (jeandiz)", source: "https://sketchfab.com/3d-models/none-43a561e941704eefb1ab0614be4f0049" },
   { id: "tactical", name: "Soldado táctico", author: "DanlyVostok", source: "https://sketchfab.com/3d-models/none-850593a8c7114c188395ba1849a66eb9" },
   { id: "1b2d325edc", name: "Astronauta oscura", author: "Charles Cloutier", source: "https://sketchfab.com/3d-models/none-1b2d325edc814d068e920add2ecc8a32" },
   { id: "2e81554250", name: "Traje antirradiación", author: "sanyaork", source: "https://sketchfab.com/3d-models/none-2e815542505d48d8be91e9f7dbebfd0a" },
